@@ -1,0 +1,10 @@
+program teste;
+var a, b: integer;
+begin
+   a := 5;
+   b := a div 2;
+   if b > 0 then
+      write(b)
+   else
+      write(false);
+end.
