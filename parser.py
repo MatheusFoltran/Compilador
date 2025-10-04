@@ -195,8 +195,7 @@ def p_cmd_list_tail(p):
 
 # <comando> ::= <atribuição> | <chamada_procedimento> | ...
 def p_comando(p):
-    '''comando : atribuicao
-               | chamada_procedimento
+    '''comando : comando_id
                | condicional
                | repeticao
                | leitura
@@ -204,24 +203,23 @@ def p_comando(p):
                | comando_composto'''
     p[0] = p[1]
 
-# <atribuição> ::= <identificador> ':=' <expressão>
-def p_atribuicao(p):
-    'atribuicao : ID ASSIGN expressao'
-    p[0] = Assign(p[1], p[3])
-
-# <chamada_procedimento> ::= <identificador> [ '(' <lista_expressões> ')' ]
-# IMPORTANTE: ID sozinho (sem parênteses) causa conflito com atribuição
-# Solução: exigir parênteses OU criar regra unificada
-def p_chamada_procedimento(p):
-    '''chamada_procedimento : ID LPAREN lista_expressoes RPAREN
-                            | ID LPAREN RPAREN
-                            | ID'''
-    if len(p) == 5:
+# Unifica atribuição e chamada de procedimento (ambos começam com ID)
+def p_comando_id(p):
+    '''comando_id : ID ASSIGN expressao
+                  | ID LPAREN lista_expressoes RPAREN
+                  | ID LPAREN RPAREN
+                  | ID'''
+    if len(p) == 4 and p[2] == ':=':
+        # atribuição
+        p[0] = Assign(p[1], p[3])
+    elif len(p) == 5:
+        # chamada com argumentos
         p[0] = ProcCall(p[1], p[3])
     elif len(p) == 4:
+        # chamada sem argumentos (com parênteses vazios)
         p[0] = ProcCall(p[1], [])
     else:
-        # ID sozinho - chamada sem argumentos e sem parênteses
+        # ID sozinho - chamada sem parênteses
         p[0] = ProcCall(p[1], [])
 
 # <condicional> ::= 'if' <expressão> 'then' <comando> [ 'else' <comando> ]

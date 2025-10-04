@@ -2,5 +2,5 @@ program exemplo;
 var x: integer;
 begin
    x := 10;
-   write(x);
+   write(x)
 end.
