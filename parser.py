@@ -1,8 +1,7 @@
 import sys
 import ply.yacc as yacc
 from lexer import tokens, lexer
-from ast_nodes import (Program, Block, VarDecl, Compound, Assign, FuncCall, write_ast,
-                ProcCall, If, While, Read, Write, BinOp, UnOp, Var, Num, Bool)
+from ast_nodes import *
 
 # Precedência e associatividade
 precedence = (
@@ -191,42 +190,45 @@ def p_termo(p):
 
 # <fator> ::= <variável> | <número> | <lógico> | <chamada_função> 
 #           | '(' <expressão> ')' | 'not' <fator> | '-' <fator>
+# NOTA: Unificamos ID (variável) e ID(...) (função) aqui para evitar conflito shift/reduce
 def p_fator(p):
-    '''fator : variavel
+    '''fator : ID
+             | ID LPAREN lista_expressoes RPAREN
+             | ID LPAREN RPAREN
              | NUM
              | logico
-             | chamada_funcao
              | LPAREN expressao RPAREN
              | NOT fator
              | MINUS fator %prec UMINUS'''
     if len(p) == 2:
-        p[0] = p[1]
+        if isinstance(p[1], str):
+            # ID sozinho = variável
+            p[0] = Var(p[1])
+        else:
+            # NUM ou logico já processado
+            p[0] = p[1]
+    elif len(p) == 5:
+        # ID LPAREN lista_expressoes RPAREN = chamada de função
+        p[0] = FuncCall(p[1], p[3])
     elif len(p) == 4:
-        # LPAREN expressao RPAREN
-        p[0] = p[2]
+        if p[1] == '(':
+            # LPAREN expressao RPAREN
+            p[0] = p[2]
+        else:
+            # ID LPAREN RPAREN = chamada de função sem args
+            p[0] = FuncCall(p[1], [])
     else:
         # NOT fator ou MINUS fator
         p[0] = UnOp(p[1], p[2])
 
-# <variável> ::= <identificador>
-def p_variavel(p):
-    'variavel : ID'
-    p[0] = Var(p[1])
+# Removemos as regras separadas de variavel e chamada_funcao
+# pois causavam conflito shift/reduce
 
 # <lógico> ::= 'false' | 'true'
 def p_logico(p):
     '''logico : FALSE
               | TRUE'''
     p[0] = Bool(p[1])
-
-# <chamada_função> ::= <identificador> '(' [ <lista_expressões> ] ')'
-def p_chamada_funcao(p):
-    '''chamada_funcao : ID LPAREN lista_expressoes RPAREN
-                      | ID LPAREN RPAREN'''
-    if len(p) == 5:
-        p[0] = FuncCall(p[1], p[3])
-    else:
-        p[0] = FuncCall(p[1], [])
 
 # Produção vazia
 def p_empty(p):
@@ -237,8 +239,11 @@ def p_empty(p):
 def p_error(p):
     if p:
         print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+        # Abortar parsing imediatamente
+        raise SyntaxError(f"Erro sintático na linha {p.lineno}")
     else:
         print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF)")
+        raise SyntaxError("Fim de arquivo inesperado")
 
 # Construir parser
 def make_parser():
@@ -263,16 +268,24 @@ if __name__ == '__main__':
     
     # Criar parser e fazer análise
     parser = make_parser()
-    resultado = parser.parse(data, lexer=lexer)
     
-    if resultado:
+    try:
+        resultado = parser.parse(data, lexer=lexer)
+        
+        if resultado:
+            print("\n" + "=" * 60)
+            print("ANÁLISE SINTÁTICA BEM-SUCEDIDA")
+            print("=" * 60)
+            print("\nÁRVORE SINTÁTICA ABSTRATA (AST):\n")
+            write_ast(resultado)
+            print("\n" + "=" * 60)
+        else:
+            print("\n" + "=" * 60)
+            print("ANÁLISE SINTÁTICA FALHOU")
+            print("=" * 60)
+            sys.exit(1)
+    except SyntaxError:
         print("\n" + "=" * 60)
-        print("ANÁLISE SINTÁTICA BEM-SUCEDIDA")
+        print("ANÁLISE SINTÁTICA ABORTADA")
         print("=" * 60)
-        print("\nÁRVORE SINTÁTICA ABSTRATA (AST):\n")
-        write_ast(resultado)
-        print("\n" + "=" * 60)
-    else:
-        print("\n" + "=" * 60)
-        print("ANÁLISE SINTÁTICA FALHOU")
-        print("=" * 60)
+        sys.exit(1)
