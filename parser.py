@@ -277,7 +277,11 @@ if __name__ == '__main__':
             print("ANÁLISE SINTÁTICA BEM-SUCEDIDA")
             print("=" * 60)
             print("\nÁRVORE SINTÁTICA ABSTRATA (AST):\n")
-            write_ast(resultado)
+            
+            # Escolha o formato:
+            write_ast(resultado)           # Formato S-expression (compacto)
+            #write_ast_verbose(resultado)     # Formato detalhado e legível
+            
             print("\n" + "=" * 60)
         else:
             print("\n" + "=" * 60)

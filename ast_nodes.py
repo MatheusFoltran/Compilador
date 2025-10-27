@@ -10,13 +10,13 @@ class No:
 @dataclass
 class Program(No):
     name: str
-    block: Block
+    block: 'Block'
 
 @dataclass
 class Block(No):
-    var_decls: List[VarDecl]
+    var_decls: List['VarDecl']
     subr_decls: List  # Para procedures e functions (não implementado ainda)
-    compound: Compound
+    compound: 'Compound'
 
 @dataclass
 class VarDecl(No):
@@ -87,6 +87,124 @@ class Bool(No):
 
 def write_ast(no, out=sys.stdout, indent=0):
     """Escreve a AST em formato S-expression (Lisp-like)"""
+    
+def write_ast_verbose(no, out=sys.stdout, indent=0):
+    """Escreve a AST em formato mais detalhado e legível"""
+    prefix = "  " * indent
+    
+    if isinstance(no, Program):
+        out.write(f"{prefix}PROGRAMA: {no.name}\n")
+        out.write(f"{prefix}├─ BLOCO:\n")
+        write_ast_verbose(no.block, out, indent + 1)
+        return
+    
+    if isinstance(no, Block):
+        if no.var_decls:
+            out.write(f"{prefix}├─ VARIÁVEIS:\n")
+            for vd in no.var_decls:
+                write_ast_verbose(vd, out, indent + 1)
+        out.write(f"{prefix}└─ COMANDOS:\n")
+        write_ast_verbose(no.compound, out, indent + 1)
+        return
+    
+    if isinstance(no, VarDecl):
+        ids_str = ", ".join(no.ids)
+        out.write(f"{prefix}├─ {ids_str} : {no.tipo}\n")
+        return
+    
+    if isinstance(no, Compound):
+        for i, cmd in enumerate(no.commands):
+            is_last = i == len(no.commands) - 1
+            symbol = "└─" if is_last else "├─"
+            out.write(f"{prefix}{symbol} ")
+            write_ast_verbose(cmd, out, indent + 1)
+        return
+    
+    if isinstance(no, Assign):
+        out.write(f"ATRIBUIÇÃO: {no.id} := ")
+        write_ast_verbose(no.expr, out, 0)
+        out.write("\n")
+        return
+    
+    if isinstance(no, Write):
+        out.write("ESCREVER: ")
+        for i, expr in enumerate(no.exprs):
+            if i > 0:
+                out.write(", ")
+            write_ast_verbose(expr, out, 0)
+        out.write("\n")
+        return
+    
+    if isinstance(no, Read):
+        ids_str = ", ".join(no.ids)
+        out.write(f"LER: {ids_str}\n")
+        return
+    
+    if isinstance(no, If):
+        out.write("SE ")
+        write_ast_verbose(no.cond, out, 0)
+        out.write(" ENTÃO:\n")
+        write_ast_verbose(no.then_cmd, out, indent + 1)
+        if no.else_cmd:
+            out.write(f"{prefix}SENÃO:\n")
+            write_ast_verbose(no.else_cmd, out, indent + 1)
+        return
+    
+    if isinstance(no, While):
+        out.write("ENQUANTO ")
+        write_ast_verbose(no.cond, out, 0)
+        out.write(" FAÇA:\n")
+        write_ast_verbose(no.body, out, indent + 1)
+        return
+    
+    if isinstance(no, ProcCall):
+        out.write(f"CHAMAR_PROC {no.name}(")
+        for i, arg in enumerate(no.args):
+            if i > 0:
+                out.write(", ")
+            write_ast_verbose(arg, out, 0)
+        out.write(")")
+        return
+    
+    if isinstance(no, FuncCall):
+        out.write(f"{no.name}(")
+        for i, arg in enumerate(no.args):
+            if i > 0:
+                out.write(", ")
+            write_ast_verbose(arg, out, 0)
+        out.write(")")
+        return
+    
+    if isinstance(no, BinOp):
+        out.write("(")
+        write_ast_verbose(no.left, out, 0)
+        out.write(f" {no.op} ")
+        write_ast_verbose(no.right, out, 0)
+        out.write(")")
+        return
+    
+    if isinstance(no, UnOp):
+        out.write(f"({no.op}")
+        write_ast_verbose(no.expr, out, 0)
+        out.write(")")
+        return
+    
+    if isinstance(no, Num):
+        out.write(str(no.value))
+        return
+    
+    if isinstance(no, Bool):
+        out.write(no.value)
+        return
+    
+    if isinstance(no, Var):
+        out.write(no.name)
+        return
+    
+    out.write(f"<{type(no).__name__}>")
+
+def write_ast(no, out=sys.stdout, indent=0):
+    """Escreve a AST em formato S-expression (Lisp-like) - VERSÃO ORIGINAL"""
     
     if isinstance(no, Program):
         out.write(f"(program {no.name}\n")
