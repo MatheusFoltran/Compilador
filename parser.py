@@ -1,5 +1,5 @@
 import ply.yacc as yacc
-from lexer import tokens, lexer
+from lexer import *
 
 # AST nodes
 class Program:
