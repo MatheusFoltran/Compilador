@@ -1,0 +1,32 @@
+program sequencia_par;
+var
+    limite : integer;
+
+procedure imprimir_sequencia_par(maximo : integer);
+var
+    i, resto : integer;
+begin
+    i := 0;
+    while i <= maximo do
+    begin
+        resto := i - (i div 2) * 2;
+        if resto = 0 then
+        begin
+            write(i)
+        end
+        else
+        begin
+            i := i + 1
+        end;
+
+        if resto = 0 then
+        begin
+            i := i + 2
+        end
+    end
+end;
+
+begin
+    read(limite);
+    imprimir_sequencia_par(limite)
+end.

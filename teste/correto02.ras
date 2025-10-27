@@ -1,0 +1,32 @@
+program bhaskara;
+var
+    a, b, c, delta, x1, x2, raiz_delta : integer;
+
+function int_sqrt(n : integer) : integer;
+var
+    i : integer;
+begin
+    i := 0;
+    while (i * i) <= n do
+    begin
+        i := i + 1
+    end;
+    int_sqrt := i - 1
+end;
+
+begin
+    read(a, b, c);
+    delta := (b * b) - (4 * a * c);
+
+    if delta >= 0 then
+    begin
+        raiz_delta := int_sqrt(delta);
+        x1 := (-b + raiz_delta) div (2 * a);
+        x2 := (-b - raiz_delta) div (2 * a);
+        write(x1, x2)
+    end
+    else
+    begin
+        write(0)
+    end
+end.

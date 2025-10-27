@@ -1,0 +1,19 @@
+program Scope;
+var a: integer;
+	function f(n: integer): integer;
+	var t: integer;
+	begin
+		t := n + 1;
+		f := t
+	end;
+
+
+	procedure p(x: integer);
+	var a: boolean;
+	begin
+		if a then write(x) else write(x+1)
+	end;
+
+begin
+	a := 5; p(a); write(f(a))
+end.

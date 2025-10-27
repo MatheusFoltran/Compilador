@@ -1,0 +1,8 @@
+program Err3;
+	procedure q(a: integer; b: integer);
+	begin
+		write(a + b)
+	end;
+begin
+	q(1)
+end.

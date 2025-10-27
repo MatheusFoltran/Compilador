@@ -1,0 +1,37 @@
+program TesteFuncoes;
+
+var
+    x, y, z: integer;
+    ok: boolean;
+
+    function soma(a, b: integer): integer;
+    var
+        res: integer;
+    begin
+        res := a + b;
+        soma := res
+    end;
+
+    function dobro(n: integer): integer;
+    begin
+        dobro := n * 2
+    end;
+
+    function maior(a, b: integer): integer;
+    begin
+        if a > b then
+            maior := a
+        else
+            maior := b
+    end;
+
+begin
+    x := 10;
+    y := 20;
+    z := soma(x, dobro(y));
+    ok := (maior(z, x) > y);
+    if ok then
+        write(z)
+    else
+        write(x, y, z)
+end.

@@ -1,0 +1,8 @@
+program Err4;
+	function g(): integer;
+	begin
+		write(1)
+	end;
+begin
+	write(2)
+end.

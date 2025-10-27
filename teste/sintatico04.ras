@@ -1,0 +1,7 @@
+program erro_sem_ponto;
+var
+    i : integer;
+begin
+    i := 100;
+    write(i)
+end

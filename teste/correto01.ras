@@ -1,0 +1,8 @@
+program multiplicacao;
+var
+    n1, n2, resultado : integer;
+begin
+    read(n1, n2);
+    resultado := n1 * n2;
+    write(resultado)
+end.

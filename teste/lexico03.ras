@@ -1,0 +1,8 @@
+program erro_cifrao;
+var
+    salario, imposto, salario_liq : integer;
+begin
+    read(salario, imposto);
+    salario_liq := salario - imposto$;
+    write(salario_liq)
+end.

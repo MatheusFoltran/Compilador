@@ -1,0 +1,8 @@
+program erro_op_seguido;
+var
+    a, b, c : integer;
+begin
+    read(a, b);
+    c := a + * b;
+    write(c)
+end.

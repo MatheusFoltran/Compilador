@@ -1,0 +1,7 @@
+program erro_arroba;
+var
+    nome@usuario : integer;
+begin
+    nome@usuario := 123;
+    write(nome@usuario)
+end.

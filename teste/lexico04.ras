@@ -1,0 +1,10 @@
+program erro_hashtag;
+var
+    idade : integer;
+begin
+    idade := 25;
+    if idade >= 18 then
+    begin
+        write(1)
+    end
+end#
