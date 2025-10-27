@@ -279,8 +279,8 @@ if __name__ == '__main__':
             print("\nÁRVORE SINTÁTICA ABSTRATA (AST):\n")
             
             # Escolha o formato:
-            write_ast(resultado)           # Formato S-expression (compacto)
-            #write_ast_verbose(resultado)     # Formato detalhado e legível
+            # write_ast(resultado)           # Formato S-expression (compacto)
+            write_ast_verbose(resultado)     # Formato detalhado e legível
             
             print("\n" + "=" * 60)
         else:
