@@ -76,22 +76,29 @@ def p_opt_var_section(p):
 # <seção_declaração_variáveis> ::= 'var' <declaração_variáveis> ';' { <declaração_variáveis> ';' }
 def p_var_section(p):
     'var_section : VAR decl_vars SEMI var_decl_list'
+    global recovering
+    recovering = False  # Resetar flag após seção completa
     p[0] = [p[2]] + p[4]
 
 def p_var_decl_list(p):
     '''var_decl_list : decl_vars SEMI var_decl_list
                      | empty'''
+    global recovering
     if len(p) == 2:
         p[0] = []
+        recovering = False  # Resetar quando terminar lista
     else:
         p[0] = [p[1]] + p[3]
 
 # Erro: 'var' duplicado no meio das declarações
 def p_var_decl_list_error(p):
-    'var_decl_list : VAR'
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno(1)}")
+    '''var_decl_list : VAR decl_vars SEMI
+                     | VAR error SEMI'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno(1)}")
     p[0] = []
 
 # <declaração_variáveis> ::= <lista_identificadores> ':' <tipo>
@@ -428,6 +435,10 @@ def p_error(p):
             elif prev.type in operadores_binarios and p.type in ('SEMI', 'RPAREN', 'END'):
                 operador_anterior = prev.value
                 print(f"ERRO SINTÁTICO na linha {p.lineno}: token '{p.value}' inesperado após operador '{operador_anterior}'. O parser esperava um <fator> (variável, número, etc.)")
+            # CASO: VAR duplicado já foi tratado, ignorar erros subsequentes até sincronizar
+            elif prev.type == 'VAR' and p.type not in ('SEMI', 'BEGIN', 'END'):
+                # Não reportar, já tratamos o erro de VAR duplicado
+                pass
             # CASO: EOF inesperado
             elif p.type == 'EOF':
                 print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno}")
