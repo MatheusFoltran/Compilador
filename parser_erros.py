@@ -7,6 +7,9 @@ from ast_nodes import *
 error_count = 0
 # Flag para evitar erros em cascata
 recovering = False
+# Rastreamento do último token para mensagens contextuais
+last_token = None
+tracked_lexer = None
 
 # Precedência e associatividade
 precedence = (
@@ -17,6 +20,27 @@ precedence = (
     ('left', 'TIMES', 'DIV'),
     ('right', 'NOT', 'UMINUS'),
 )
+
+# Wrapper para rastrear tokens (mantém histórico de 2 tokens)
+class TokenTracker:
+    def __init__(self, lexer):
+        self.lexer = lexer
+        self.prev_token = None
+        self.last_token = None
+    
+    def token(self):
+        global last_token
+        tok = self.lexer.token()
+        if tok:
+            self.prev_token = self.last_token
+            self.last_token = tok
+            last_token = tok
+        return tok
+    
+    def input(self, data):
+        self.lexer.input(data)
+        self.prev_token = None
+        self.last_token = None
 
 # <programa> ::= 'program' <identificador> ';' <bloco> '.'
 def p_program(p):
@@ -178,7 +202,7 @@ def p_atribuicao_error(p):
     if not recovering:
         error_count += 1
         recovering = True
-        if p[2] == 'error':
+        if len(p) == 4 and p[2] == 'error':
             print(f"ERRO SINTÁTICO na linha {p.lineno(2)}: ':=' esperado para atribuição")
         else:
             print(f"ERRO SINTÁTICO: expressão inválida na atribuição")
@@ -309,20 +333,6 @@ def p_expressao_simples(p):
     else:
         p[0] = BinOp(p[2], p[1], p[3])
 
-# Erro: operador seguido de token inválido (captura + *, - *, etc.)
-def p_expressao_simples_error(p):
-    '''expressao_simples : expressao_simples PLUS error
-                         | expressao_simples MINUS error
-                         | expressao_simples OR error'''
-    global error_count, recovering
-    if not recovering:
-        error_count += 1
-        recovering = True
-        linha = p.lineno(2)
-        print(f"ERRO SINTÁTICO: operador '{p[2]}' inesperado após o operador '{p[2]}'. O parser esperava um <fator> (variável, número, etc.). Linha {linha}")
-    # Retorna apenas o lado esquerdo
-    p[0] = p[1]
-
 # <termo> ::= <fator> { ( '*' | 'div' | 'and' ) <fator> }
 def p_termo(p):
     '''termo : fator
@@ -333,19 +343,6 @@ def p_termo(p):
         p[0] = p[1]
     else:
         p[0] = BinOp(p[2], p[1], p[3])
-
-# Erro: operador seguido de token inválido em termo
-def p_termo_error(p):
-    '''termo : termo TIMES error
-             | termo DIV error
-             | termo AND error'''
-    global error_count, recovering
-    if not recovering:
-        error_count += 1
-        recovering = True
-        linha = p.lineno(2)
-        print(f"ERRO SINTÁTICO: operador '{p[2]}' inesperado após o operador '{p[2]}'. O parser esperava um <fator> (variável, número, etc.). Linha {linha}")
-    p[0] = p[1]
 
 # <fator> ::= <variável> | <número> | <lógico> | <chamada_função> 
 #           | '(' <expressão> ')' | 'not' <fator> | '-' <fator>
@@ -403,9 +400,9 @@ def p_empty(p):
     'empty :'
     pass
 
-# Tratamento de erros com modo pânico aprimorado
+# Tratamento de erros com modo pânico INTELIGENTE
 def p_error(p):
-    global error_count, recovering
+    global error_count, recovering, last_token
     
     # Evitar mensagens de erro em cascata
     if recovering:
@@ -417,23 +414,63 @@ def p_error(p):
     recovering = True
     
     if p:
-        print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+        # Detectar contexto do erro baseado no histórico de tokens
+        operadores_binarios = ('PLUS', 'MINUS', 'TIMES', 'DIV', 'AND', 'OR')
         
-        # Modo pânico melhorado: sincronizar em pontos seguros
-        while True:
+        # CASO ESPECIAL: Operador após operador (ex: + *)
+        # Verificar se o token ANTERIOR ao erro é um operador
+        if hasattr(tracked_lexer, 'prev_token') and tracked_lexer.prev_token:
+            prev = tracked_lexer.prev_token
+            if prev.type in operadores_binarios and p.type in operadores_binarios:
+                operador_anterior = prev.value
+                token_atual = p.value
+                print(f"ERRO SINTÁTICO: operador '{token_atual}' inesperado após o operador '{operador_anterior}'. O parser esperava um <fator> (variável, número, etc.). Linha {p.lineno}")
+            elif prev.type in operadores_binarios and p.type in ('SEMI', 'RPAREN', 'END'):
+                operador_anterior = prev.value
+                print(f"ERRO SINTÁTICO na linha {p.lineno}: token '{p.value}' inesperado após operador '{operador_anterior}'. O parser esperava um <fator> (variável, número, etc.)")
+            # CASO: EOF inesperado
+            elif p.type == 'EOF':
+                print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno}")
+            # CASO: Palavras-chave inesperadas
+            elif p.type == 'VAR':
+                print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
+            elif p.type == 'FUNCTION':
+                print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
+            elif p.type == 'END' and prev.type == 'SEMI':
+                print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno}")
+            elif p.type == 'RPAREN' and prev.type == 'LPAREN':
+                print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em procedure sem parâmetros. Linha {p.lineno}")
+            else:
+                # Erro genérico
+                print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+        else:
+            # Sem histórico, usar lógica padrão
+            if p.type == 'EOF':
+                print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa")
+            elif p.type == 'VAR':
+                print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
+            elif p.type == 'FUNCTION':
+                print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
+            else:
+                print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+        
+        # Modo pânico: sincronizar em pontos seguros
+        sync_count = 0
+        while sync_count < 10:  # Limite de tokens para sincronização
             tok = parser.token()
             if not tok:
-                # Chegou ao EOF
                 break
             
-            # Pontos de sincronização mais estratégicos
+            # Pontos de sincronização
             if tok.type in ('SEMI', 'END', 'BEGIN'):
                 parser.errok()
                 return tok
+            
+            sync_count += 1
         
         parser.errok()
     else:
-        print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF)")
+        print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa")
 
 # Construir parser
 def make_parser():
@@ -441,9 +478,10 @@ def make_parser():
 
 # Teste do parser
 if __name__ == '__main__':
-    # Resetar contador de erros
+    # Resetar variáveis globais
     error_count = 0
     recovering = False
+    last_token = None
     
     # Ler entrada do stdin ou arquivo
     if len(sys.argv) > 1:
@@ -460,11 +498,14 @@ if __name__ == '__main__':
         print("Erro: entrada vazia.")
         sys.exit(1)
     
+    # Criar lexer com rastreamento (global para acesso em p_error)
+    tracked_lexer = TokenTracker(lexer)
+    
     # Criar parser e fazer análise
     parser = make_parser()
     
     try:
-        resultado = parser.parse(data, lexer=lexer)
+        resultado = parser.parse(data, lexer=tracked_lexer)
         
         print("\n" + "=" * 60)
         if error_count == 0:
