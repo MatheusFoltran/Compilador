@@ -5,6 +5,8 @@ from ast_nodes import *
 
 # Contador de erros
 error_count = 0
+# Flag para evitar erros em cascata
+recovering = False
 
 # Precedência e associatividade
 precedence = (
@@ -33,7 +35,7 @@ def p_program_error(p):
     elif p[3] == 'error':
         print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: ';' esperado após o identificador do programa")
     elif p[5] == 'error':
-        print(f"ERRO SINTÁTICO na linha {p.lineno(5)}: '.' esperado para finalizar o programa")
+        print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
     p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
 
 # <bloco> ::= [<seção_declaração_variáveis>] [<seção_declaração_subrotinas>] <comando_composto>
@@ -52,14 +54,6 @@ def p_var_section(p):
     'var_section : VAR decl_vars SEMI var_decl_list'
     p[0] = [p[2]] + p[4]
 
-# Erro: segunda seção 'var' não permitida
-def p_var_section_error_duplicate(p):
-    'var_section : VAR decl_vars SEMI var_decl_list VAR'
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(5)}: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>")
-    p[0] = [p[2]] + p[4]
-
 def p_var_decl_list(p):
     '''var_decl_list : decl_vars SEMI var_decl_list
                      | empty'''
@@ -73,7 +67,7 @@ def p_var_decl_list_error(p):
     'var_decl_list : VAR'
     global error_count
     error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(1)}: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>")
+    print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno(1)}")
     p[0] = []
 
 # <declaração_variáveis> ::= <lista_identificadores> ':' <tipo>
@@ -125,7 +119,7 @@ def p_opt_subr_section_error(p):
     'opt_subr_section : FUNCTION'
     global error_count
     error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(1)}: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas")
+    print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno(1)}")
     p[0] = []
 
 # <comando_composto> ::= 'begin' <comando> { ';' <comando> } 'end'
@@ -138,17 +132,8 @@ def p_comando_composto_error_semi_before_end(p):
     'comando_composto : BEGIN comando cmd_list_tail SEMI END'
     global error_count
     error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(5)}: token 'end' inesperado. Não deveria haver ';' antes do último 'end'")
+    print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno(5)}")
     p[0] = Compound([p[2]] + p[3])
-
-# Erro: erro dentro do bloco
-def p_comando_composto_error(p):
-    '''comando_composto : BEGIN error END
-                        | error END'''
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO: erro dentro do comando composto")
-    p[0] = Compound([])
 
 def p_cmd_list_tail(p):
     '''cmd_list_tail : SEMI comando cmd_list_tail
@@ -157,6 +142,15 @@ def p_cmd_list_tail(p):
         p[0] = []
     else:
         p[0] = [p[2]] + p[3]
+
+# Erro em lista de comandos - captura erro e sincroniza
+def p_cmd_list_tail_error(p):
+    'cmd_list_tail : SEMI error'
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+    p[0] = []
 
 # <comando> ::= <atribuição> | <chamada_procedimento> | ...
 def p_comando(p):
@@ -167,6 +161,8 @@ def p_comando(p):
                | leitura
                | escrita
                | comando_composto'''
+    global recovering
+    recovering = False  # Resetar flag ao completar comando com sucesso
     p[0] = p[1]
 
 # <atribuição> ::= <identificador> ':=' <expressão>
@@ -177,17 +173,18 @@ def p_atribuicao(p):
 # Erro: atribuição incompleta
 def p_atribuicao_error(p):
     '''atribuicao : ID ASSIGN error
-                  | ID error expressao'''
-    global error_count
-    error_count += 1
-    if p[2] == 'error':
-        print(f"ERRO SINTÁTICO na linha {p.lineno(2)}: ':=' esperado para atribuição")
-    else:
-        print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: expressão inválida na atribuição")
+                  | ID error'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        if p[2] == 'error':
+            print(f"ERRO SINTÁTICO na linha {p.lineno(2)}: ':=' esperado para atribuição")
+        else:
+            print(f"ERRO SINTÁTICO: expressão inválida na atribuição")
     p[0] = Assign(p[1], Num(0))
 
 # <chamada_procedimento> ::= <identificador> '(' [ <lista_expressões> ] ')'
-# IMPORTANTE: Segundo a gramática, chamada de procedimento DEVE ter parênteses!
 def p_chamada_procedimento(p):
     '''chamada_procedimento : ID LPAREN lista_expressoes RPAREN
                             | ID LPAREN RPAREN'''
@@ -196,14 +193,12 @@ def p_chamada_procedimento(p):
     else:
         p[0] = ProcCall(p[1], [])
 
-# Erro: procedure sem parâmetros mas com parênteses vazios (se não for permitido)
-# Nota: Na verdade, ID LPAREN RPAREN é válido pela gramática acima
-# Mas se a professora quer erro em procedure sem parâmetros:
+# Erro: procedure sem parâmetros mas com parênteses vazios (se declaração)
 def p_chamada_procedimento_error_empty_parens(p):
-    '''chamada_procedimento : PROCEDURE ID LPAREN RPAREN'''
+    'chamada_procedimento : PROCEDURE ID LPAREN RPAREN'
     global error_count
     error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: token ')' inesperado. Não deveria ter () em procedure sem parâmetros")
+    print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em procedure sem parâmetros. Linha {p.lineno(3)}")
     p[0] = ProcCall(p[2], [])
 
 # <condicional> ::= 'if' <expressão> 'then' <comando> [ 'else' <comando> ]
@@ -220,14 +215,16 @@ def p_condicional_error(p):
     '''condicional : IF error THEN comando
                    | IF expressao error comando
                    | IF expressao THEN error'''
-    global error_count
-    error_count += 1
-    if p[2] == 'error':
-        print(f"ERRO SINTÁTICO: expressão inválida após 'if'")
-    elif p[3] == 'error':
-        print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: 'then' esperado após expressão do 'if'")
-    else:
-        print(f"ERRO SINTÁTICO: comando inválido após 'then'")
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        if p[2] == 'error':
+            print(f"ERRO SINTÁTICO: expressão inválida após 'if'")
+        elif p[3] == 'error':
+            print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: 'then' esperado após expressão do 'if'")
+        else:
+            print(f"ERRO SINTÁTICO: comando inválido após 'then'")
     p[0] = If(Bool('true'), Compound([]))
 
 # <repetição> ::= 'while' <expressão> 'do' <comando>
@@ -239,12 +236,14 @@ def p_repeticao(p):
 def p_repeticao_error(p):
     '''repeticao : WHILE error DO comando
                  | WHILE expressao error comando'''
-    global error_count
-    error_count += 1
-    if p[2] == 'error':
-        print(f"ERRO SINTÁTICO: expressão inválida após 'while'")
-    else:
-        print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: 'do' esperado após expressão do 'while'")
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        if p[2] == 'error':
+            print(f"ERRO SINTÁTICO: expressão inválida após 'while'")
+        else:
+            print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: 'do' esperado após expressão do 'while'")
     p[0] = While(Bool('true'), Compound([]))
 
 # <leitura> ::= 'read' '(' <lista_identificadores> ')'
@@ -279,6 +278,16 @@ def p_expressao(p):
     else:
         p[0] = BinOp(p[2], p[1], p[3])
 
+# Erro em expressão com relação
+def p_expressao_error(p):
+    'expressao : expressao_simples relacao error'
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO: expressão inválida após operador relacional '{p[2]}'")
+    p[0] = BinOp(p[2], p[1], Num(0))
+
 # <relação> ::= '=' | '<>' | '<' | '<=' | '>' | '>='
 def p_relacao(p):
     '''relacao : EQ
@@ -300,14 +309,18 @@ def p_expressao_simples(p):
     else:
         p[0] = BinOp(p[2], p[1], p[3])
 
-# Erro: operador seguido de operador (ex: + *)
+# Erro: operador seguido de token inválido (captura + *, - *, etc.)
 def p_expressao_simples_error(p):
     '''expressao_simples : expressao_simples PLUS error
                          | expressao_simples MINUS error
                          | expressao_simples OR error'''
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: operador '{p[2]}' seguido de token inesperado. O parser esperava um <fator> (variável, número, etc.)")
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        linha = p.lineno(2)
+        print(f"ERRO SINTÁTICO: operador '{p[2]}' inesperado após o operador '{p[2]}'. O parser esperava um <fator> (variável, número, etc.). Linha {linha}")
+    # Retorna apenas o lado esquerdo
     p[0] = p[1]
 
 # <termo> ::= <fator> { ( '*' | 'div' | 'and' ) <fator> }
@@ -321,14 +334,17 @@ def p_termo(p):
     else:
         p[0] = BinOp(p[2], p[1], p[3])
 
-# Erro: operador seguido de operador em termo
+# Erro: operador seguido de token inválido em termo
 def p_termo_error(p):
     '''termo : termo TIMES error
              | termo DIV error
              | termo AND error'''
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: operador '{p[2]}' seguido de token inesperado. O parser esperava um <fator> (variável, número, etc.)")
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        linha = p.lineno(2)
+        print(f"ERRO SINTÁTICO: operador '{p[2]}' inesperado após o operador '{p[2]}'. O parser esperava um <fator> (variável, número, etc.). Linha {linha}")
     p[0] = p[1]
 
 # <fator> ::= <variável> | <número> | <lógico> | <chamada_função> 
@@ -366,10 +382,14 @@ def p_fator(p):
 # Erro: expressão entre parênteses incompleta
 def p_fator_error(p):
     '''fator : LPAREN error RPAREN
-             | LPAREN expressao error'''
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO: expressão entre parênteses inválida")
+             | LPAREN expressao error
+             | NOT error
+             | MINUS error'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO: expressão inválida")
     p[0] = Num(0)
 
 # <lógico> ::= 'false' | 'true'
@@ -383,29 +403,34 @@ def p_empty(p):
     'empty :'
     pass
 
-# Tratamento de erros com modo pânico
+# Tratamento de erros com modo pânico aprimorado
 def p_error(p):
-    global error_count
+    global error_count, recovering
+    
+    # Evitar mensagens de erro em cascata
+    if recovering:
+        if p:
+            parser.errok()
+        return
+    
     error_count += 1
+    recovering = True
     
     if p:
         print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
         
-        # Modo pânico: tentar sincronizar em pontos seguros
-        # Descarta tokens até encontrar um ponto de sincronização
+        # Modo pânico melhorado: sincronizar em pontos seguros
         while True:
             tok = parser.token()
             if not tok:
                 # Chegou ao EOF
                 break
             
-            # Pontos de sincronização: delimitadores importantes
-            if tok.type in ('SEMI', 'END', 'DOT', 'BEGIN'):
-                # Encontrou ponto de sincronização, sinaliza que pode continuar
+            # Pontos de sincronização mais estratégicos
+            if tok.type in ('SEMI', 'END', 'BEGIN'):
                 parser.errok()
                 return tok
         
-        # Se chegou aqui, não encontrou ponto de sincronização
         parser.errok()
     else:
         print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF)")
@@ -418,7 +443,8 @@ def make_parser():
 if __name__ == '__main__':
     # Resetar contador de erros
     error_count = 0
-
+    recovering = False
+    
     # Ler entrada do stdin ou arquivo
     if len(sys.argv) > 1:
         try:
@@ -447,12 +473,7 @@ if __name__ == '__main__':
             
             if resultado:
                 print("\nÁRVORE SINTÁTICA ABSTRATA (AST):\n")
-            
-            # Escolha o formato:
-            # write_ast(resultado)           # Formato S-expression (compacto)
-            write_ast_verbose(resultado)     # Formato detalhado e legível
-            
-            print("\n" + "=" * 60)
+                write_ast_verbose(resultado)
         else:
             print(f"ANÁLISE SINTÁTICA COMPLETADA COM {error_count} ERRO(S)")
             print("=" * 60)
@@ -465,7 +486,7 @@ if __name__ == '__main__':
         
         # Retornar código de erro se houver erros
         sys.exit(1 if error_count > 0 else 0)
-
+        
     except Exception as e:
         print("\n" + "=" * 60)
         print("ANÁLISE SINTÁTICA ABORTADA")
