@@ -215,17 +215,56 @@ def p_bloco_subrot(p):
     recovering = False  # Resetar flag ao completar bloco de subrotina
     p[0] = Block(p[1], [], p[2])  # Sem subrotinas aninhadas!
 
-# ERRO: Tentativa de aninhar subrotinas (function ou procedure dentro de function/procedure)
-def p_bloco_subrot_error(p):
-    '''bloco_subrot : opt_var_section FUNCTION
-                    | opt_var_section PROCEDURE'''
+# ERRO MELHORADO: Tentativa de aninhar subrotinas
+# Esta regra consome a subrotina inválida inteira e continua processando
+def p_bloco_subrot_error_nested(p):
+    '''bloco_subrot : opt_var_section nested_subr_error comando_composto'''
+    global error_count, recovering
+    # O erro já foi reportado em nested_subr_error
+    # Aqui apenas montamos o bloco ignorando a subrotina aninhada
+    p[0] = Block(p[1], [], p[3])
+
+# Captura e descarta subrotina aninhada completa
+def p_nested_subr_error(p):
+    '''nested_subr_error : FUNCTION ID opt_params COLON tipo SEMI nested_block SEMI
+                         | FUNCTION ID COLON tipo SEMI nested_block SEMI
+                         | PROCEDURE ID opt_params SEMI nested_block SEMI
+                         | PROCEDURE ID SEMI nested_block SEMI'''
     global error_count, recovering
     if not recovering:
         error_count += 1
         recovering = True
-        keyword = p[2].lower()
-        print(f"ERRO SINTÁTICO: palavra-chave '{keyword}' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno(2)}")
-    p[0] = Block(p[1], [], Compound([]))
+        keyword = 'function' if p[1] == 'function' else 'procedure'
+        print(f"ERRO SINTÁTICO: palavra-chave '{keyword}' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno(1)}")
+    # Retorna None para descartar esta subrotina
+    pass
+
+# Bloco aninhado (usado apenas para consumir a estrutura completa da subrotina aninhada)
+def p_nested_block(p):
+    '''nested_block : opt_var_section BEGIN nested_cmd_list END
+                    | opt_var_section BEGIN END'''
+    # Apenas consome tokens, não retorna nada útil
+    pass
+
+def p_nested_cmd_list(p):
+    '''nested_cmd_list : nested_cmd
+                       | nested_cmd SEMI nested_cmd_list'''
+    # Apenas consome tokens
+    pass
+
+def p_nested_cmd(p):
+    '''nested_cmd : ID ASSIGN expressao
+                  | ID LPAREN lista_expressoes RPAREN
+                  | ID LPAREN RPAREN
+                  | IF expressao THEN nested_cmd
+                  | IF expressao THEN nested_cmd ELSE nested_cmd
+                  | WHILE expressao DO nested_cmd
+                  | READ LPAREN lista_identificadores RPAREN
+                  | WRITE LPAREN lista_expressoes RPAREN
+                  | BEGIN nested_cmd_list END
+                  | BEGIN END'''
+    # Apenas consome tokens
+    pass
 
 # ============ COMANDOS ============
 
@@ -515,10 +554,6 @@ def p_error(p):
             # CASO: Palavras-chave inesperadas
             elif p.type == 'VAR':
                 print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
-            elif p.type == 'FUNCTION':
-                print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
-            elif p.type == 'PROCEDURE':
-                print(f"ERRO SINTÁTICO: palavra-chave 'procedure' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
             elif p.type == 'END' and prev.type == 'SEMI':
                 print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno}")
             elif p.type == 'RPAREN' and prev.type == 'LPAREN':
@@ -532,10 +567,6 @@ def p_error(p):
                 print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa")
             elif p.type == 'VAR':
                 print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
-            elif p.type == 'FUNCTION':
-                print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
-            elif p.type == 'PROCEDURE':
-                print(f"ERRO SINTÁTICO: palavra-chave 'procedure' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
             else:
                 print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
         
