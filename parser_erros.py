@@ -140,18 +140,94 @@ def p_tipo(p):
             | BOOLEAN'''
     p[0] = p[1]
 
-# [<seção_declaração_subrotinas>] - placeholder
-def p_opt_subr_section(p):
-    'opt_subr_section : empty'
-    p[0] = []
+# ============ SEÇÃO DE SUBROTINAS ============
 
-# Erro: palavra-chave 'function' não permitida (não suportado)
-def p_opt_subr_section_error(p):
-    'opt_subr_section : FUNCTION'
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno(1)}")
-    p[0] = []
+# [<seção_declaração_subrotinas>] ::= { ( <declaração_procedimento> | <declaração_função> ) ';' }
+def p_opt_subr_section(p):
+    '''opt_subr_section : subr_section
+                        | empty'''
+    p[0] = p[1] if p[1] is not None else []
+
+def p_subr_section(p):
+    'subr_section : subr_decl_list'
+    p[0] = p[1]
+
+def p_subr_decl_list(p):
+    '''subr_decl_list : subr_decl SEMI subr_decl_list
+                      | subr_decl SEMI'''
+    if len(p) == 4:
+        p[0] = [p[1]] + p[3]
+    else:
+        p[0] = [p[1]]
+
+def p_subr_decl(p):
+    '''subr_decl : proc_decl
+                 | func_decl'''
+    p[0] = p[1]
+
+# <declaração_procedimento> ::= 'procedure' <identificador> [ <parâmetros_formais> ] ';' <bloco_subrot>
+def p_proc_decl(p):
+    '''proc_decl : PROCEDURE ID opt_params SEMI bloco_subrot
+                 | PROCEDURE ID SEMI bloco_subrot'''
+    if len(p) == 6:
+        p[0] = ProcDecl(p[2], p[3], p[5])
+    else:
+        p[0] = ProcDecl(p[2], [], p[4])
+
+# <declaração_função> ::= 'function' <identificador> [ <parâmetros_formais> ] ':' <tipo> ';' <bloco_subrot>
+def p_func_decl(p):
+    '''func_decl : FUNCTION ID opt_params COLON tipo SEMI bloco_subrot
+                 | FUNCTION ID COLON tipo SEMI bloco_subrot'''
+    if len(p) == 8:
+        p[0] = FuncDecl(p[2], p[3], p[5], p[7])
+    else:
+        p[0] = FuncDecl(p[2], [], p[4], p[6])
+
+# [<parâmetros_formais>]
+def p_opt_params(p):
+    '''opt_params : params
+                  | empty'''
+    p[0] = p[1] if p[1] is not None else []
+
+# <parâmetros_formais> ::= '(' <declaração_parâmetros> { ';' <declaração_parâmetros> } ')'
+def p_params(p):
+    'params : LPAREN param_decl param_decl_list RPAREN'
+    p[0] = [p[2]] + p[3]
+
+def p_param_decl_list(p):
+    '''param_decl_list : SEMI param_decl param_decl_list
+                       | empty'''
+    if len(p) == 2:
+        p[0] = []
+    else:
+        p[0] = [p[2]] + p[3]
+
+# <declaração_parâmetros> ::= <lista_identificadores> ':' <tipo>
+def p_param_decl(p):
+    'param_decl : lista_identificadores COLON tipo'
+    p[0] = ParamDecl(p[1], p[3])
+
+# <bloco_subrot> ::= [<seção_declaração_variáveis>] <comando_composto>
+# IMPORTANTE: NÃO permite <seção_declaração_subrotinas> (sem aninhamento!)
+def p_bloco_subrot(p):
+    'bloco_subrot : opt_var_section comando_composto'
+    global recovering
+    recovering = False  # Resetar flag ao completar bloco de subrotina
+    p[0] = Block(p[1], [], p[2])  # Sem subrotinas aninhadas!
+
+# ERRO: Tentativa de aninhar subrotinas (function ou procedure dentro de function/procedure)
+def p_bloco_subrot_error(p):
+    '''bloco_subrot : opt_var_section FUNCTION
+                    | opt_var_section PROCEDURE'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        keyword = p[2].lower()
+        print(f"ERRO SINTÁTICO: palavra-chave '{keyword}' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno(2)}")
+    p[0] = Block(p[1], [], Compound([]))
+
+# ============ COMANDOS ============
 
 # <comando_composto> ::= 'begin' <comando> { ';' <comando> } 'end'
 def p_comando_composto(p):
@@ -224,14 +300,6 @@ def p_chamada_procedimento(p):
     else:
         p[0] = ProcCall(p[1], [])
 
-# Erro: procedure sem parâmetros mas com parênteses vazios (se declaração)
-def p_chamada_procedimento_error_empty_parens(p):
-    'chamada_procedimento : PROCEDURE ID LPAREN RPAREN'
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em procedure sem parâmetros. Linha {p.lineno(3)}")
-    p[0] = ProcCall(p[2], [])
-
 # <condicional> ::= 'if' <expressão> 'then' <comando> [ 'else' <comando> ]
 def p_condicional(p):
     '''condicional : IF expressao THEN comando
@@ -286,6 +354,8 @@ def p_leitura(p):
 def p_escrita(p):
     'escrita : WRITE LPAREN lista_expressoes RPAREN'
     p[0] = Write(p[3])
+
+# ============ EXPRESSÕES ============
 
 # <lista_expressões> ::= <expressão> { ',' <expressão> }
 def p_lista_expressoes(p):
@@ -447,6 +517,8 @@ def p_error(p):
                 print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
             elif p.type == 'FUNCTION':
                 print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
+            elif p.type == 'PROCEDURE':
+                print(f"ERRO SINTÁTICO: palavra-chave 'procedure' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
             elif p.type == 'END' and prev.type == 'SEMI':
                 print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno}")
             elif p.type == 'RPAREN' and prev.type == 'LPAREN':
@@ -462,6 +534,8 @@ def p_error(p):
                 print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
             elif p.type == 'FUNCTION':
                 print(f"ERRO SINTÁTICO: palavra-chave 'function' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
+            elif p.type == 'PROCEDURE':
+                print(f"ERRO SINTÁTICO: palavra-chave 'procedure' inesperada. A regra <bloco_subrot> não permite aninhamento de sub-rotinas. Linha {p.lineno}")
             else:
                 print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
         

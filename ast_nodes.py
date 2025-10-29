@@ -15,11 +15,32 @@ class Program(No):
 @dataclass
 class Block(No):
     var_decls: List['VarDecl']
-    subr_decls: List  # Para procedures e functions (não implementado ainda)
+    subr_decls: List  # Para procedures e functions
     compound: 'Compound'
 
 @dataclass
 class VarDecl(No):
+    ids: List[str]
+    tipo: str  # 'integer' ou 'boolean'
+
+@dataclass
+class ProcDecl(No):
+    """Declaração de procedure"""
+    name: str
+    params: List['ParamDecl']
+    block: 'Block'
+
+@dataclass
+class FuncDecl(No):
+    """Declaração de function"""
+    name: str
+    params: List['ParamDecl']
+    return_type: str  # 'integer' ou 'boolean'
+    block: 'Block'
+
+@dataclass
+class ParamDecl(No):
+    """Declaração de parâmetro"""
     ids: List[str]
     tipo: str  # 'integer' ou 'boolean'
 
@@ -85,9 +106,6 @@ class Bool(No):
     value: str  # 'true' ou 'false'
 
 
-def write_ast(no, out=sys.stdout, indent=0):
-    """Escreve a AST em formato S-expression (Lisp-like)"""
-    
 def write_ast_verbose(no, out=sys.stdout, indent=0):
     """Escreve a AST em formato mais detalhado e legível"""
     prefix = "  " * indent
@@ -99,17 +117,55 @@ def write_ast_verbose(no, out=sys.stdout, indent=0):
         return
     
     if isinstance(no, Block):
-        if no.var_decls:
+        has_vars = bool(no.var_decls)
+        has_subrs = bool(no.subr_decls)
+        
+        if has_vars:
             out.write(f"{prefix}├─ VARIÁVEIS:\n")
             for vd in no.var_decls:
                 write_ast_verbose(vd, out, indent + 1)
-        out.write(f"{prefix}└─ COMANDOS:\n")
+        
+        if has_subrs:
+            out.write(f"{prefix}├─ SUBROTINAS:\n")
+            for subr in no.subr_decls:
+                write_ast_verbose(subr, out, indent + 1)
+        
+        symbol = "└─" if has_vars or has_subrs else "├─"
+        out.write(f"{prefix}{symbol} COMANDOS:\n")
         write_ast_verbose(no.compound, out, indent + 1)
         return
     
     if isinstance(no, VarDecl):
         ids_str = ", ".join(no.ids)
         out.write(f"{prefix}├─ {ids_str} : {no.tipo}\n")
+        return
+    
+    if isinstance(no, ProcDecl):
+        out.write(f"{prefix}├─ PROCEDURE {no.name}")
+        if no.params:
+            out.write("(")
+            for i, param in enumerate(no.params):
+                if i > 0:
+                    out.write("; ")
+                ids_str = ", ".join(param.ids)
+                out.write(f"{ids_str}: {param.tipo}")
+            out.write(")")
+        out.write("\n")
+        write_ast_verbose(no.block, out, indent + 1)
+        return
+    
+    if isinstance(no, FuncDecl):
+        out.write(f"{prefix}├─ FUNCTION {no.name}")
+        if no.params:
+            out.write("(")
+            for i, param in enumerate(no.params):
+                if i > 0:
+                    out.write("; ")
+                ids_str = ", ".join(param.ids)
+                out.write(f"{ids_str}: {param.tipo}")
+            out.write(")")
+        out.write(f" : {no.return_type}\n")
+        write_ast_verbose(no.block, out, indent + 1)
         return
     
     if isinstance(no, Compound):
@@ -190,7 +246,7 @@ def write_ast_verbose(no, out=sys.stdout, indent=0):
         return
     
     if isinstance(no, Num):
-        out.write(str(no.value))
+        out.write(f"<int>")
         return
     
     if isinstance(no, Bool):
@@ -204,7 +260,7 @@ def write_ast_verbose(no, out=sys.stdout, indent=0):
     out.write(f"<{type(no).__name__}>")
 
 def write_ast(no, out=sys.stdout, indent=0):
-    """Escreve a AST em formato S-expression (Lisp-like) - VERSÃO ORIGINAL"""
+    """Escreve a AST em formato S-expression (Lisp-like)"""
     
     if isinstance(no, Program):
         out.write(f"(program {no.name}\n")
@@ -223,9 +279,14 @@ def write_ast(no, out=sys.stdout, indent=0):
                 write_ast(vd, out, indent + 2)
                 out.write("\n")
             out.write("  " * (indent + 1) + ")\n")
-        # Subrotinas (vazio por enquanto)
+        # Subrotinas
         if no.subr_decls:
-            out.write("  " * (indent + 1) + "(subrs ...)\n")
+            out.write("  " * (indent + 1) + "(subrs\n")
+            for subr in no.subr_decls:
+                out.write("  " * (indent + 2))
+                write_ast(subr, out, indent + 2)
+                out.write("\n")
+            out.write("  " * (indent + 1) + ")\n")
         # Comando composto
         out.write("  " * (indent + 1))
         write_ast(no.compound, out, indent + 1)
@@ -235,6 +296,37 @@ def write_ast(no, out=sys.stdout, indent=0):
     if isinstance(no, VarDecl):
         ids_str = " ".join(no.ids)
         out.write(f"(var-decl ({ids_str}) {no.tipo})")
+        return
+    
+    if isinstance(no, ProcDecl):
+        out.write(f"(proc-decl {no.name}")
+        if no.params:
+            out.write(" (params")
+            for param in no.params:
+                out.write(" ")
+                write_ast(param, out, indent)
+            out.write(")")
+        out.write("\n" + "  " * (indent + 1))
+        write_ast(no.block, out, indent + 1)
+        out.write(")")
+        return
+    
+    if isinstance(no, FuncDecl):
+        out.write(f"(func-decl {no.name}")
+        if no.params:
+            out.write(" (params")
+            for param in no.params:
+                out.write(" ")
+                write_ast(param, out, indent)
+            out.write(")")
+        out.write(f" {no.return_type}\n" + "  " * (indent + 1))
+        write_ast(no.block, out, indent + 1)
+        out.write(")")
+        return
+    
+    if isinstance(no, ParamDecl):
+        ids_str = " ".join(no.ids)
+        out.write(f"(param ({ids_str}) {no.tipo})")
         return
     
     if isinstance(no, Compound):
