@@ -7,6 +7,14 @@ class No:
     """Classe base para todos os nós da AST"""
     pass
 
+class Cmd:
+    """Classe base para comandos"""
+    pass
+
+class Expr:
+    """Classe base para expressões"""
+    pass
+
 @dataclass
 class Program(No):
     name: str
@@ -46,63 +54,63 @@ class ParamDecl(No):
 
 @dataclass
 class Compound(No):
-    commands: List[No]  # Lista de comandos
+    commands: List[Cmd]  # Lista de comandos
 
 @dataclass
-class Assign(No):
+class Assign(Cmd):
     id: str
-    expr: No
+    expr: Expr
 
 @dataclass
-class Write(No):
-    exprs: List[No]
+class Write(Cmd):
+    exprs: List[Expr]
 
 @dataclass
-class Read(No):
+class Read(Cmd):
     ids: List[str]
 
 @dataclass
-class If(No):
-    cond: No
-    then_cmd: No
-    else_cmd: Optional[No] = None
+class If(Cmd):
+    cond: Expr
+    then_cmd: Cmd
+    else_cmd: Optional[Cmd] = None
 
 @dataclass
-class While(No):
-    cond: No
-    body: No
+class While(Cmd):
+    cond: Expr
+    body: Cmd
 
 @dataclass
-class ProcCall(No):
+class ProcCall(Cmd):
     name: str
-    args: List[No]
+    args: List[Expr]
 
 @dataclass
-class FuncCall(No):
+class FuncCall(Expr):
     name: str
-    args: List[No]
+    args: List[Expr]
 
 @dataclass
-class BinOp(No):
+class BinOp(Expr):
     op: str
-    left: No
-    right: No
+    left: Expr
+    right: Expr
 
 @dataclass
-class UnOp(No):
+class UnOp(Expr):
     op: str
-    expr: No
+    expr: Expr
 
 @dataclass
-class Var(No):
+class Var(Expr):
     name: str
 
 @dataclass
-class Num(No):
+class Num(Expr):
     value: int
 
 @dataclass
-class Bool(No):
+class Bool(Expr):
     value: str  # 'true' ou 'false'
 
 
