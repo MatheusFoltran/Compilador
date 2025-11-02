@@ -192,6 +192,26 @@ def p_func_decl(p):
     else:
         p[0] = FuncDecl(p[2], [], p[4], p[6])
 
+# Erro: () vazio em função (quando não há parâmetros, não deve ter parênteses)
+def p_func_decl_error_empty_params(p):
+    '''func_decl : FUNCTION ID LPAREN RPAREN COLON tipo SEMI bloco_subrot'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em function sem parâmetros. Linha {p.lineno(4)}")
+    p[0] = FuncDecl(p[2], [], p[6], p[8])
+
+# Erro: () vazio em procedure (quando não há parâmetros, não deve ter parênteses)  
+def p_proc_decl_error_empty_params(p):
+    '''proc_decl : PROCEDURE ID LPAREN RPAREN SEMI bloco_subrot'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em procedure sem parâmetros. Linha {p.lineno(4)}")
+    p[0] = ProcDecl(p[2], [], p[6])
+
 # [<parâmetros_formais>]
 def p_opt_params(p):
     '''opt_params : params
