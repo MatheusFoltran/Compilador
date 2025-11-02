@@ -484,8 +484,11 @@ def p_fator(p):
         if isinstance(p[1], str):
             # ID sozinho = variável
             p[0] = Var(p[1])
+        elif isinstance(p[1], int):
+            # NUM = número literal
+            p[0] = Num(p[1])
         else:
-            # NUM ou logico já processado
+            # logico já processado (Bool)
             p[0] = p[1]
     elif len(p) == 5:
         # ID LPAREN lista_expressoes RPAREN = chamada de função

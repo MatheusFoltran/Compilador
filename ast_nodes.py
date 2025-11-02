@@ -254,7 +254,7 @@ def write_ast_verbose(no, out=sys.stdout, indent=0):
         return
     
     if isinstance(no, Num):
-        out.write(f"<int>")
+        out.write(str(no.value))
         return
     
     if isinstance(no, Bool):
