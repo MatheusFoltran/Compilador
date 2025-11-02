@@ -284,11 +284,17 @@ def p_comando_composto(p):
 
 # Erro: ';' antes de 'end' (último comando não deve ter ';')
 def p_comando_composto_error_semi_before_end(p):
-    'comando_composto : BEGIN comando cmd_list_tail SEMI END'
-    global error_count
-    error_count += 1
-    print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno(5)}")
-    p[0] = Compound([p[2]] + p[3])
+    '''comando_composto : BEGIN comando cmd_list_tail SEMI END
+                        | BEGIN comando SEMI END'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno(len(p)-1)}")
+    if len(p) == 6:
+        p[0] = Compound([p[2]] + p[3])
+    else:
+        p[0] = Compound([p[2]])
 
 def p_cmd_list_tail(p):
     '''cmd_list_tail : SEMI comando cmd_list_tail
@@ -650,6 +656,8 @@ if __name__ == '__main__':
             if resultado:
                 print("\nÁRVORE SINTÁTICA ABSTRATA (PARCIAL):\n")
                 write_ast_verbose(resultado)
+            else:
+                print("\nNão foi possível construir uma AST parcial devido aos erros encontrados.")
         
         print("\n" + "=" * 60)
         
