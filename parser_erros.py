@@ -47,20 +47,29 @@ def p_program(p):
     'program : PROGRAM ID SEMI bloco DOT'
     p[0] = Program(p[2], p[4])
 
-# Erro: identificador faltando ou ponto-e-vírgula faltando
+# Erro: identificador faltando ou ponto-e-vírgula faltando ou ponto final faltando
 def p_program_error(p):
     '''program : PROGRAM error SEMI bloco DOT
                | PROGRAM ID error bloco DOT
-               | PROGRAM ID SEMI bloco error'''
+               | PROGRAM ID SEMI bloco error
+               | PROGRAM ID SEMI bloco'''
     global error_count
     error_count += 1
-    if p[2] == 'error':
+    if len(p) == 5:
+        # PROGRAM ID SEMI bloco (sem o ponto final)
+        print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
+        p[0] = Program(p[2], p[4])
+    elif p[2] == 'error':
         print(f"ERRO SINTÁTICO na linha {p.lineno(2)}: identificador esperado após 'program'")
+        p[0] = Program('error_program', p[4])
     elif p[3] == 'error':
         print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: ';' esperado após o identificador do programa")
+        p[0] = Program(p[2], p[4])
     elif p[5] == 'error':
         print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
-    p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
+        p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
+    else:
+        p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
 
 # <bloco> ::= [<seção_declaração_variáveis>] [<seção_declaração_subrotinas>] <comando_composto>
 def p_bloco(p):
