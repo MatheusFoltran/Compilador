@@ -3,6 +3,29 @@ import ply.yacc as yacc
 from lexer import tokens, lexer
 from ast_nodes import *
 
+"""
+ESTRATÉGIA DE TRATAMENTO DE ERROS:
+
+1. REGRAS DE ERRO ESPECÍFICAS (p_xxx_error):
+   - Capturam erros em contextos específicos da gramática
+   - Fornecem mensagens de erro detalhadas e contextuais
+   - Constroem AST parcial sempre que possível
+   - Exemplos: falta de ';', '(' vazio em functions, etc.
+
+2. FUNÇÃO p_error (GENÉRICA):
+   - Último recurso quando nenhuma regra específica casa
+   - Mensagem genérica: "token inesperado"
+   - EXCEÇÃO: Operadores seguidos (ex: a + * b) caem aqui por limitação do PLY
+     - PLY não consegue prever que operador é inválido até tentar todas as regras
+     - Para operadores, damos mensagem contextual sobre o que era esperado
+   - Faz sincronização (modo pânico) em pontos seguros
+
+3. FLAG 'recovering':
+   - Evita mensagens de erro em cascata
+   - Resetada quando parsing volta ao normal
+   - Importante para não poluir a saída com erros duplicados
+"""
+
 # Contador de erros
 error_count = 0
 # Flag para evitar erros em cascata
@@ -53,23 +76,30 @@ def p_program_error(p):
                | PROGRAM ID error bloco DOT
                | PROGRAM ID SEMI bloco error
                | PROGRAM ID SEMI bloco'''
-    global error_count
-    error_count += 1
-    if len(p) == 5:
-        # PROGRAM ID SEMI bloco (sem o ponto final)
-        print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
-        p[0] = Program(p[2], p[4])
-    elif p[2] == 'error':
-        print(f"ERRO SINTÁTICO na linha {p.lineno(2)}: identificador esperado após 'program'")
-        p[0] = Program('error_program', p[4])
-    elif p[3] == 'error':
-        print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: ';' esperado após o identificador do programa")
-        p[0] = Program(p[2], p[4])
-    elif p[5] == 'error':
-        print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
-        p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        
+        if len(p) == 5:
+            # PROGRAM ID SEMI bloco (sem o ponto final)
+            print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
+            p[0] = Program(p[2], p[4])
+        elif p[2] == 'error':
+            print(f"ERRO SINTÁTICO na linha {p.lineno(2)}: identificador esperado após 'program'")
+            p[0] = Program('error_program', p[4])
+        elif p[3] == 'error':
+            print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: ';' esperado após o identificador do programa")
+            p[0] = Program(p[2], p[4])
+        elif p[5] == 'error':
+            print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
+            p[0] = Program(p[2], p[4])
+        else:
+            p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
     else:
-        p[0] = Program(p[2] if p[2] != 'error' else 'error_program', p[4])
+        # Já estamos recuperando, apenas construir AST parcial
+        p[0] = Program(p[2] if len(p) > 2 and p[2] != 'error' else 'error_program', 
+                      p[4] if len(p) > 4 else Block([], [], Compound([])))
 
 # <bloco> ::= [<seção_declaração_variáveis>] [<seção_declaração_subrotinas>] <comando_composto>
 def p_bloco(p):
@@ -554,9 +584,10 @@ def p_empty(p):
     'empty :'
     pass
 
-# Tratamento de erros com modo pânico INTELIGENTE
+# Tratamento de erros genérico (último recurso)
+# Esta função só é chamada quando NENHUMA regra de erro específica casa
 def p_error(p):
-    global error_count, recovering, last_token
+    global error_count, recovering
     
     # Evitar mensagens de erro em cascata
     if recovering:
@@ -568,45 +599,16 @@ def p_error(p):
     recovering = True
     
     if p:
-        # Detectar contexto do erro baseado no histórico de tokens
-        operadores_binarios = ('PLUS', 'MINUS', 'TIMES', 'DIV', 'AND', 'OR')
-        
-        # CASO ESPECIAL: Operador após operador (ex: + *)
-        # Verificar se o token ANTERIOR ao erro é um operador
-        if hasattr(tracked_lexer, 'prev_token') and tracked_lexer.prev_token:
-            prev = tracked_lexer.prev_token
-            if prev.type in operadores_binarios and p.type in operadores_binarios:
-                operador_anterior = prev.value
-                token_atual = p.value
-                print(f"ERRO SINTÁTICO: operador '{token_atual}' inesperado após o operador '{operador_anterior}'. O parser esperava um <fator> (variável, número, etc.). Linha {p.lineno}")
-            elif prev.type in operadores_binarios and p.type in ('SEMI', 'RPAREN', 'END'):
-                operador_anterior = prev.value
-                print(f"ERRO SINTÁTICO na linha {p.lineno}: token '{p.value}' inesperado após operador '{operador_anterior}'. O parser esperava um <fator> (variável, número, etc.)")
-            # CASO: VAR duplicado já foi tratado, ignorar erros subsequentes até sincronizar
-            elif prev.type == 'VAR' and p.type not in ('SEMI', 'BEGIN', 'END'):
-                # Não reportar, já tratamos o erro de VAR duplicado
-                pass
-            # CASO: EOF inesperado
-            elif p.type == 'EOF':
-                print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno}")
-            # CASO: Palavras-chave inesperadas
-            elif p.type == 'VAR':
-                print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
-            elif p.type == 'END' and prev.type == 'SEMI':
-                print(f"ERRO SINTÁTICO: token 'end' inesperado. Não deveria haver o ';' no último comando. Linha {p.lineno}")
-            elif p.type == 'RPAREN' and prev.type == 'LPAREN':
-                print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em procedure sem parâmetros. Linha {p.lineno}")
-            else:
-                # Erro genérico
-                print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+        # NOTA: Operadores seguidos (ex: a + * b) caem aqui porque o PLY não consegue
+        # prever que um operador é inválido nesse contexto até tentar todas as regras.
+        # Damos mensagem contextual APENAS para operadores para melhorar a experiência.
+        if p.type in ('TIMES', 'DIV', 'AND'):
+            print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'. O parser esperava um fator (variável, número, '(', 'not' ou '-')")
+        elif p.type in ('PLUS', 'MINUS', 'OR'):
+            print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'. O parser esperava um termo")
         else:
-            # Sem histórico, usar lógica padrão
-            if p.type == 'EOF':
-                print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa")
-            elif p.type == 'VAR':
-                print(f"ERRO SINTÁTICO: palavra-chave 'var' inesperada. A gramática só permite uma <seção_declaração_variáveis>. Linha {p.lineno}")
-            else:
-                print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+            # Mensagem genérica para outros tokens
+            print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
         
         # Modo pânico: sincronizar em pontos seguros
         sync_count = 0
@@ -616,7 +618,7 @@ def p_error(p):
                 break
             
             # Pontos de sincronização
-            if tok.type in ('SEMI', 'END', 'BEGIN'):
+            if tok.type in ('SEMI', 'END', 'BEGIN', 'DOT'):
                 parser.errok()
                 return tok
             
@@ -624,7 +626,8 @@ def p_error(p):
         
         parser.errok()
     else:
-        print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa")
+        # EOF sem token - provavelmente falta algo no final do arquivo
+        print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF)")
 
 # Construir parser
 def make_parser():
