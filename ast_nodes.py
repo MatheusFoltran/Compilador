@@ -60,58 +60,87 @@ class Compound(No):
 class Assign(Cmd):
     id: str
     expr: Expr
+    # Anotações semânticas
+    var_type: Optional[str] = None       # Tipo da variável
+    var_scope_level: Optional[int] = None  # Nível léxico
+    var_offset: Optional[int] = None       # Offset na pilha
 
 @dataclass
 class Write(Cmd):
     exprs: List[Expr]
+    # Anotações semânticas
+    expr_types: Optional[List[str]] = None  # Tipos das expressões a escrever
 
 @dataclass
 class Read(Cmd):
     ids: List[str]
+    # Anotações semânticas
+    var_types: Optional[List[str]] = None  # Tipos das variáveis sendo lidas
 
 @dataclass
 class If(Cmd):
     cond: Expr
     then_cmd: Cmd
     else_cmd: Optional[Cmd] = None
+    # Anotações semânticas
+    cond_type: Optional[str] = None  # Tipo da condição (deve ser boolean)
 
 @dataclass
 class While(Cmd):
     cond: Expr
     body: Cmd
+    # Anotações semânticas
+    cond_type: Optional[str] = None  # Tipo da condição (deve ser boolean)
 
 @dataclass
 class ProcCall(Cmd):
     name: str
     args: List[Expr]
+    # Anotações semânticas
+    param_types: Optional[List[str]] = None  # Tipos dos parâmetros (para verificação)
 
 @dataclass
 class FuncCall(Expr):
     name: str
     args: List[Expr]
+    # Anotações semânticas
+    return_type: Optional[str] = None        # Tipo de retorno
+    param_types: Optional[List[str]] = None  # Tipos dos parâmetros (para verificação)
 
 @dataclass
 class BinOp(Expr):
     op: str
     left: Expr
     right: Expr
+    # Anotação semântica: tipo do resultado
+    result_type: Optional[str] = None
 
 @dataclass
 class UnOp(Expr):
     op: str
     expr: Expr
+    # Anotação semântica: tipo do resultado
+    result_type: Optional[str] = None
 
 @dataclass
 class Var(Expr):
     name: str
+    # Anotações semânticas (preenchidas durante análise semântica)
+    tipo: Optional[str] = None          # Tipo da variável
+    scope_level: Optional[int] = None   # Nível léxico (0=global, 1+=local)
+    offset: Optional[int] = None        # Offset na pilha (para geração de código)
 
 @dataclass
 class Num(Expr):
     value: int
+    # Tipo é sempre 'integer', mas anotamos para uniformidade
+    tipo: str = 'integer'
 
 @dataclass
 class Bool(Expr):
     value: str  # 'true' ou 'false'
+    # Tipo é sempre 'boolean'
+    tipo: str = 'boolean'
 
 
 def write_ast_verbose(no, out=sys.stdout, indent=0):
