@@ -1,115 +1,189 @@
 """
-Analisador Semântico para Rascal
-- Verifica declaração de variáveis, procedures e functions
-- Verifica tipos e compatibilidade
-- Implementa controle de escopo estático (léxico)
-- Detecta erros semânticos
-
-Estrutura da Tabela de Símbolos:
-- Hash table (dicionário Python) para busca O(1)
-- Pilha de escopos para escopo léxico
-- Cada símbolo tem: nome, categoria (var/proc/func), tipo, parâmetros, escopo
+Analisador Semântico para Rascal - Versão com Estrutura Híbrida
+- Estrutura interna: Tudo junto no mesmo dicionário (eficiente)
+- Visualização: Separado por categoria ao imprimir (organizado)
+- Pilha de escopos para controle léxico
 """
 
 import sys
 from ast_nodes import *
-from dataclasses import dataclass
-from typing import List, Optional, Dict
+from dataclasses import dataclass, field
+from typing import List, Optional, Dict, Tuple
 
 class SemanticError(Exception):
     """Exceção para erros semânticos"""
     pass
 
+ParamList = List[Tuple[str, str]]
+
+
 @dataclass
 class Symbol:
-    """
-    Representa um símbolo na tabela de símbolos
-    
-    Atributos:
-    - name: nome do identificador
-    - category: 'var', 'proc' ou 'func'
-    - tipo: tipo do símbolo ('integer', 'boolean', ou tipo de retorno para funções)
-    - params: lista de parâmetros (para proc/func) como lista de (nome, tipo)
-    - scope_level: nível de escopo (0 = global, 1+ = local)
-    """
+    """Classe base para qualquer símbolo"""
     name: str
-    category: str  # 'var', 'proc', 'func'
-    tipo: str  # tipo da variável ou tipo de retorno (para funções)
-    params: Optional[List[tuple]] = None  # [(nome, tipo), ...] para proc/func
-    scope_level: int = 0
-    
-    def __repr__(self):
-        if self.category == 'var':
-            return f"Symbol(var {self.name}: {self.tipo}, level={self.scope_level})"
-        elif self.category in ['proc', 'func']:
-            params_str = ", ".join(f"{n}: {t}" for n, t in (self.params or []))
-            ret = f" -> {self.tipo}" if self.category == 'func' else ""
-            return f"Symbol({self.category} {self.name}({params_str}){ret}, level={self.scope_level})"
-        return f"Symbol({self.name})"
+    scope_level: int
+
+    @property
+    def category(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def tipo(self) -> Optional[str]:
+        return None
+
+    @property
+    def params(self) -> Optional[ParamList]:
+        return None
+
+    def __repr__(self) -> str:
+        return f"Symbol({self.category} {self.name}, level={self.scope_level})"
+
+
+@dataclass
+class VarSymbol(Symbol):
+    """Símbolo para variáveis (inclui parâmetros)"""
+    var_type: str
+    is_param: bool = False
+
+    @property
+    def category(self) -> str:
+        return 'var'
+
+    @property
+    def tipo(self) -> str:
+        return self.var_type
+
+    def __repr__(self) -> str:
+        kind = 'param' if self.is_param else 'var'
+        return f"Symbol({kind} {self.name}: {self.var_type}, level={self.scope_level})"
+
+
+@dataclass
+class ProcSymbol(Symbol):
+    """Símbolo para procedures"""
+    param_list: ParamList = field(default_factory=list)
+
+    @property
+    def category(self) -> str:
+        return 'proc'
+
+    @property
+    def params(self) -> ParamList:
+        return self.param_list
+
+    def __repr__(self) -> str:
+        params_str = ", ".join(f"{n}: {t}" for n, t in self.param_list)
+        return f"Symbol(proc {self.name}({params_str}), level={self.scope_level})"
+
+
+@dataclass
+class FuncSymbol(ProcSymbol):
+    """Símbolo para functions (herda lista de parâmetros)"""
+    return_type: str = 'void'
+
+    @property
+    def category(self) -> str:
+        return 'func'
+
+    @property
+    def tipo(self) -> str:
+        return self.return_type
+
+    def __repr__(self) -> str:
+        params_str = ", ".join(f"{n}: {t}" for n, t in self.param_list)
+        return (
+            f"Symbol(func {self.name}({params_str}) -> {self.return_type}, "
+            f"level={self.scope_level})"
+        )
 
 
 class SymbolTable:
     """
-    Tabela de símbolos com suporte a escopo estático/léxico
+    Tabela de símbolos com pilha de escopos
     
-    Implementação:
-    - Hash table (dicionário) para cada escopo
-    - Pilha de escopos (scope_stack) para controle de aninhamento
-    - Regra: contexto envolvente mais próximo (busca de dentro para fora)
+    Estrutura INTERNA: 
+    - scope_stack: List[Dict[str, Symbol]] 
+    - Cada dicionário contém TODOS os tipos misturados (var, proc, func)
+    - Busca eficiente O(1)
     
-    Estrutura de dados escolhida: Hash table (dicionário Python)
-    - Inserção: O(1)
-    - Busca: O(1) 
-    - Remoção: O(1)
-    - Dinâmica (cresce conforme necessário)
+    Visualização EXTERNA:
+    - Separa por categoria ao imprimir
+    - Organiza hierarquia de escopos
     """
     
     def __init__(self):
         # Pilha de escopos: cada escopo é um dicionário {nome: Symbol}
-        self.scope_stack: List[Dict[str, Symbol]] = [{}]  # Começa com escopo global
+        # TUDO junto: vars, procs e funcs no mesmo dict
+        self.scope_stack: List[Dict[str, Symbol]] = [{}]  # [0] = Global
         self.current_scope_level = 0
     
     def enter_scope(self):
-        """Entra em um novo escopo (procedure, function, bloco)"""
+        """Entra em um novo escopo (procedure, function)"""
         self.scope_stack.append({})
         self.current_scope_level += 1
         
     def exit_scope(self):
-        """Sai do escopo atual (remove/torna inacessível símbolos locais)"""
+        """Sai do escopo atual (símbolos locais são descartados automaticamente)"""
         if len(self.scope_stack) > 1:
             self.scope_stack.pop()
             self.current_scope_level -= 1
     
-    def declare(self, name: str, category: str, tipo: str, params: Optional[List[tuple]] = None):
-        """
-        Declara um símbolo no escopo atual
-        
-        Verifica duplicação apenas no escopo atual (permite shadowing)
-        """
+    def declare(
+        self,
+        name: str,
+        category: str,
+        tipo: Optional[str] = None,
+        params: Optional[ParamList] = None,
+        *,
+        is_param: bool = False,
+    ) -> Symbol:
+        """Declara um símbolo no escopo atual"""
         current_scope = self.scope_stack[-1]
-        
+
+        # Verifica duplicação APENAS no escopo atual
         if name in current_scope:
             raise SemanticError(
                 f"{category.capitalize()} '{name}' já foi declarada neste escopo"
             )
-        
-        symbol = Symbol(
-            name=name,
-            category=category,
-            tipo=tipo,
-            params=params,
-            scope_level=self.current_scope_level
-        )
+
+        # Criar o símbolo apropriado
+        if category == 'var':
+            if not tipo:
+                raise SemanticError(f"Tipo não informado para variável '{name}'")
+            symbol = VarSymbol(
+                name=name,
+                scope_level=self.current_scope_level,
+                var_type=tipo,
+                is_param=is_param,
+            )
+        elif category == 'proc':
+            symbol = ProcSymbol(
+                name=name,
+                scope_level=self.current_scope_level,
+                param_list=params or [],
+            )
+        elif category == 'func':
+            if not tipo:
+                raise SemanticError(f"Tipo de retorno não informado para função '{name}'")
+            symbol = FuncSymbol(
+                name=name,
+                scope_level=self.current_scope_level,
+                param_list=params or [],
+                return_type=tipo,
+            )
+        else:
+            raise SemanticError(f"Categoria desconhecida: {category}")
+
+        # Inserir no dicionário do escopo atual
         current_scope[name] = symbol
+        return symbol
     
     def lookup(self, name: str) -> Symbol:
         """
-        Busca um símbolo na tabela (do escopo atual para o global)
-        
-        Implementa a regra do contexto envolvente mais próximo:
-        busca no escopo atual, depois no pai, depois no avô, etc.
+        Busca símbolo (do escopo atual para o global)
+        Implementa: contexto envolvente mais próximo
         """
-        # Busca de dentro para fora (escopo mais interno primeiro)
+        # Busca de dentro para fora (topo da pilha → base)
         for scope in reversed(self.scope_stack):
             if name in scope:
                 return scope[name]
@@ -123,12 +197,35 @@ class SymbolTable:
                 return True
         return False
     
-    def get_all_symbols(self) -> List[Symbol]:
-        """Retorna todos os símbolos de todos os escopos (para debug/impressão)"""
-        symbols = []
-        for scope in self.scope_stack:
-            symbols.extend(scope.values())
-        return sorted(symbols, key=lambda s: (s.scope_level, s.name))
+    def get_symbols_by_category(self, level: int) -> Dict[str, List[Symbol]]:
+        """
+        Separa símbolos de um escopo por categoria
+        
+        Returns:
+            {'vars': [...], 'procs': [...], 'funcs': [...]}
+        """
+        if level >= len(self.scope_stack):
+            return {'vars': [], 'procs': [], 'funcs': []}
+        
+        scope = self.scope_stack[level]
+        result = {'vars': [], 'procs': [], 'funcs': []}
+        
+        # SEPARAÇÃO por tipo usando isinstance
+        for sym in scope.values():
+            if isinstance(sym, FuncSymbol):
+                # FuncSymbol ANTES de ProcSymbol (herança)
+                result['funcs'].append(sym)
+            elif isinstance(sym, ProcSymbol):
+                result['procs'].append(sym)
+            elif isinstance(sym, VarSymbol):
+                result['vars'].append(sym)
+        
+        # Ordenar por nome
+        result['vars'].sort(key=lambda s: s.name)
+        result['procs'].sort(key=lambda s: s.name)
+        result['funcs'].sort(key=lambda s: s.name)
+        
+        return result
     
     def __repr__(self):
         return f"SymbolTable(scopes={len(self.scope_stack)}, level={self.current_scope_level})"
@@ -206,7 +303,7 @@ class SemanticAnalyzer:
         
         # Declarar procedure no escopo atual
         try:
-            self.symbol_table.declare(node.name, 'proc', 'void', params)
+            self.symbol_table.declare(node.name, 'proc', params=params)
             print(f"  ✓ Procedure '{node.name}' declarada com {len(params)} parâmetro(s)")
         except SemanticError as e:
             self.error(str(e))
@@ -218,7 +315,7 @@ class SemanticAnalyzer:
         # Declarar parâmetros como variáveis locais
         for param_name, param_type in params:
             try:
-                self.symbol_table.declare(param_name, 'var', param_type)
+                self.symbol_table.declare(param_name, 'var', param_type, is_param=True)
                 print(f"    • Parâmetro '{param_name}' : {param_type}")
             except SemanticError as e:
                 self.error(str(e))
@@ -251,7 +348,7 @@ class SemanticAnalyzer:
         # Declarar parâmetros como variáveis locais
         for param_name, param_type in params:
             try:
-                self.symbol_table.declare(param_name, 'var', param_type)
+                self.symbol_table.declare(param_name, 'var', param_type, is_param=True)
                 print(f"    • Parâmetro '{param_name}' : {param_type}")
             except SemanticError as e:
                 self.error(str(e))
@@ -269,44 +366,37 @@ class SemanticAnalyzer:
     
     def visit_Assign(self, node):
         """Visita o nó Assign - verifica atribuição e anota AST"""
-        # Verificar se identificador foi declarado
         if not self.symbol_table.exists(node.id):
             self.error(f"Variável '{node.id}' não foi declarada")
             return
         
-        # Obter símbolo
         symbol = self.symbol_table.lookup(node.id)
         
-        # Verificar se é uma variável OU função (em Pascal, atribui ao nome da função para retornar valor)
         if symbol.category not in ['var', 'func']:
             self.error(f"'{node.id}' não pode receber atribuição (é {symbol.category})")
             return
         
-        # ANOTAR AST com informações
+        # ANOTAR AST
         node.var_type = symbol.tipo
         node.var_scope_level = symbol.scope_level
-        # offset será calculado posteriormente na geração de código
         
         # Verificar tipo da expressão
         expr_type = self.visit(node.expr)
         
-        # Verificar compatibilidade de tipos
         if expr_type != symbol.tipo and expr_type != 'unknown':
             self.error(f"Atribuição incompatível: '{node.id}' é {symbol.tipo}, "
                       f"mas expressão é {expr_type}")
     
     def visit_Write(self, node):
-        """Visita o nó Write - verifica escrita e anota AST"""
+        """Visita o nó Write"""
         expr_types = []
         for expr in node.exprs:
             expr_type = self.visit(expr)
             expr_types.append(expr_type)
-        
-        # ANOTAR AST com tipos das expressões sendo escritas
         node.expr_types = expr_types
     
     def visit_Read(self, node):
-        """Visita o nó Read - verifica leitura e anota AST"""
+        """Visita o nó Read"""
         var_types = []
         for var_name in node.ids:
             if not self.symbol_table.exists(var_name):
@@ -315,55 +405,41 @@ class SemanticAnalyzer:
             else:
                 symbol = self.symbol_table.lookup(var_name)
                 var_types.append(symbol.tipo)
-        
-        # ANOTAR AST com tipos das variáveis sendo lidas
         node.var_types = var_types
     
     def visit_If(self, node):
-        """Visita o nó If - verifica condicional e anota AST"""
-        # Condição deve ser booleana
+        """Visita o nó If"""
         cond_type = self.visit(node.cond)
         if cond_type != 'boolean':
             self.error(f"Condição do 'if' deve ser boolean, mas é {cond_type}")
-        
-        # ANOTAR AST com tipo da condição
         node.cond_type = cond_type
         
-        # Visitar comandos
         self.visit(node.then_cmd)
         if node.else_cmd:
             self.visit(node.else_cmd)
     
     def visit_While(self, node):
-        """Visita o nó While - verifica repetição"""
-        # Condição deve ser booleana
+        """Visita o nó While"""
         cond_type = self.visit(node.cond)
         if cond_type != 'boolean':
             self.error(f"Condição do 'while' deve ser boolean, mas é {cond_type}")
-        
-        # Visitar corpo
         self.visit(node.body)
     
     def visit_ProcCall(self, node):
-        """Visita o nó ProcCall - verifica chamada de procedimento e anota AST"""
-        # Verificar se procedure existe
+        """Visita o nó ProcCall"""
         if not self.symbol_table.exists(node.name):
             self.error(f"Procedure '{node.name}' não foi declarada")
             return
         
-        # Obter símbolo da procedure
         symbol = self.symbol_table.lookup(node.name)
         
-        # Verificar se é realmente uma procedure
         if symbol.category != 'proc':
             self.error(f"'{node.name}' não é uma procedure (é {symbol.category})")
             return
         
-        # ANOTAR AST com informações do procedure
         if symbol.params:
             node.param_types = [param_type for _, param_type in symbol.params]
         
-        # Verificar número de argumentos
         expected_params = len(symbol.params) if symbol.params else 0
         actual_args = len(node.args)
         
@@ -374,7 +450,6 @@ class SemanticAnalyzer:
             )
             return
         
-        # Verificar tipos dos argumentos
         if symbol.params:
             for i, (arg, (param_name, param_type)) in enumerate(zip(node.args, symbol.params)):
                 arg_type = self.visit(arg)
@@ -385,26 +460,21 @@ class SemanticAnalyzer:
                     )
     
     def visit_FuncCall(self, node):
-        """Visita o nó FuncCall - verifica chamada de função e anota AST"""
-        # Verificar se function existe
+        """Visita o nó FuncCall"""
         if not self.symbol_table.exists(node.name):
             self.error(f"Function '{node.name}' não foi declarada")
             return 'unknown'
         
-        # Obter símbolo da function
         symbol = self.symbol_table.lookup(node.name)
         
-        # Verificar se é realmente uma function
         if symbol.category != 'func':
             self.error(f"'{node.name}' não é uma function (é {symbol.category})")
             return 'unknown'
         
-        # ANOTAR AST com informações da function
         node.return_type = symbol.tipo
         if symbol.params:
             node.param_types = [param_type for _, param_type in symbol.params]
         
-        # Verificar número de argumentos
         expected_params = len(symbol.params) if symbol.params else 0
         actual_args = len(node.args)
         
@@ -413,9 +483,8 @@ class SemanticAnalyzer:
                 f"Function '{node.name}' espera {expected_params} argumento(s), "
                 f"mas recebeu {actual_args}"
             )
-            return symbol.tipo  # Retorna tipo esperado mesmo com erro
+            return symbol.tipo
         
-        # Verificar tipos dos argumentos
         if symbol.params:
             for i, (arg, (param_name, param_type)) in enumerate(zip(node.args, symbol.params)):
                 arg_type = self.visit(arg)
@@ -425,31 +494,27 @@ class SemanticAnalyzer:
                         f"esperado {param_type}, recebido {arg_type}"
                     )
         
-        # Retornar tipo de retorno da function
         return symbol.tipo
     
     def visit_BinOp(self, node):
-        """Visita o nó BinOp - verifica operação binária e anota AST"""
+        """Visita o nó BinOp"""
         left_type = self.visit(node.left)
         right_type = self.visit(node.right)
         
         result_type = 'unknown'
         
-        # Operadores aritméticos: +, -, *, div
         if node.op in ['+', '-', '*', 'div']:
             if left_type != 'integer' or right_type != 'integer':
                 self.error(f"Operador '{node.op}' requer operandos integer, "
                           f"mas recebeu {left_type} e {right_type}")
             result_type = 'integer'
         
-        # Operadores relacionais: =, <>, <, <=, >, >=
         elif node.op in ['=', '<>', '<', '<=', '>', '>=']:
             if left_type != right_type:
                 self.error(f"Operador '{node.op}' requer operandos do mesmo tipo, "
                           f"mas recebeu {left_type} e {right_type}")
             result_type = 'boolean'
         
-        # Operadores lógicos: and, or
         elif node.op in ['and', 'or']:
             if left_type != 'boolean' or right_type != 'boolean':
                 self.error(f"Operador '{node.op}' requer operandos boolean, "
@@ -459,26 +524,22 @@ class SemanticAnalyzer:
         else:
             self.error(f"Operador desconhecido: '{node.op}'")
         
-        # ANOTAR AST com tipo do resultado
         node.result_type = result_type
-        
         return result_type
     
     def visit_UnOp(self, node):
-        """Visita o nó UnOp - verifica operação unária e anota AST"""
+        """Visita o nó UnOp"""
         expr_type = self.visit(node.expr)
         
         result_type = 'unknown'
         
         if node.op == '-':
-            # Menos unário requer integer
             if expr_type != 'integer':
                 self.error(f"Operador unário '-' requer operando integer, "
                           f"mas recebeu {expr_type}")
             result_type = 'integer'
         
         elif node.op == 'not':
-            # Not requer boolean
             if expr_type != 'boolean':
                 self.error(f"Operador 'not' requer operando boolean, "
                           f"mas recebeu {expr_type}")
@@ -487,73 +548,168 @@ class SemanticAnalyzer:
         else:
             self.error(f"Operador unário desconhecido: '{node.op}'")
         
-        # ANOTAR AST com tipo do resultado
         node.result_type = result_type
-        
         return result_type
     
     def visit_Var(self, node):
-        """Visita o nó Var - retorna tipo da variável e anota AST"""
+        """Visita o nó Var"""
         if not self.symbol_table.exists(node.name):
             self.error(f"Variável '{node.name}' não foi declarada")
             return 'unknown'
         
         symbol = self.symbol_table.lookup(node.name)
         
-        # Verificar se é uma variável (não pode usar proc/func como variável)
         if symbol.category != 'var':
             self.error(f"'{node.name}' não é uma variável (é {symbol.category})")
             return 'unknown'
         
-        # ANOTAR AST com informações semânticas
         node.tipo = symbol.tipo
         node.scope_level = symbol.scope_level
-        # offset será calculado posteriormente
         
         return symbol.tipo
     
     def visit_Num(self, node):
-        """Visita o nó Num - retorna tipo integer"""
+        """Visita o nó Num"""
         return 'integer'
     
     def visit_Bool(self, node):
-        """Visita o nó Bool - retorna tipo boolean"""
+        """Visita o nó Bool"""
         return 'boolean'
     
+    # ========== IMPRESSÃO DA TABELA ==========
+    
     def print_symbol_table(self):
-        """Imprime a tabela de símbolos de forma organizada"""
-        print("\n" + "=" * 80)
-        print("TABELA DE SÍMBOLOS (Escopo Estático/Léxico)")
-        print("=" * 80)
+        """
+        Imprime tabela de símbolos com SEPARAÇÃO por categoria
         
-        symbols = self.symbol_table.get_all_symbols()
+        Estratégia:
+        - Itera pela pilha de escopos (global → locais)
+        - Para cada escopo, SEPARA símbolos por tipo
+        - Imprime três tabelas: Variáveis, Procedures, Functions
+        """
+        print("\n" + "=" * 100)
+        print("TABELA DE SÍMBOLOS - Organização por Escopo e Categoria")
+        print("=" * 100)
+        print("Estrutura: Pilha de escopos | Busca: Do mais interno para o global")
+        print("=" * 100)
         
-        if not symbols:
-            print("  (vazia)")
+        total_scopes = len(self.symbol_table.scope_stack)
+        
+        # Verificar se há símbolos
+        has_symbols = False
+        for level in range(total_scopes):
+            symbols = self.symbol_table.get_symbols_by_category(level)
+            if symbols['vars'] or symbols['procs'] or symbols['funcs']:
+                has_symbols = True
+                break
+        
+        if not has_symbols:
+            print("  (tabela vazia)")
+            print("=" * 100)
+            return
+        
+        # Imprimir cada escopo
+        for level in range(total_scopes):
+            self._print_scope(level, total_scopes)
+        
+        # Resumo
+        total_symbols = sum(
+            len(self.symbol_table.scope_stack[i])
+            for i in range(total_scopes)
+        )
+        print(f"\n📊 Resumo: {total_symbols} símbolo(s) em {total_scopes} nível(is) de escopo")
+        print("=" * 100)
+    
+    def _print_scope(self, level: int, total_levels: int):
+        """Imprime um escopo específico separado por categoria"""
+        
+        # Obter símbolos separados por categoria
+        symbols = self.symbol_table.get_symbols_by_category(level)
+        
+        # Cabeçalho do escopo
+        if level == 0:
+            print("\n╔═══════════════════════════════════════════════════════════════════╗")
+            print("║  🌍 ESCOPO GLOBAL (nível 0)                                       ║")
+            print("╚═══════════════════════════════════════════════════════════════════╝")
         else:
-            # Agrupar por nível de escopo
-            by_level = {}
-            for sym in symbols:
-                if sym.scope_level not in by_level:
-                    by_level[sym.scope_level] = []
-                by_level[sym.scope_level].append(sym)
-            
-            # Imprimir por nível
-            for level in sorted(by_level.keys()):
-                scope_name = "Global" if level == 0 else f"Local (nível {level})"
-                print(f"\n  ┌─ Escopo {scope_name} ─")
-                
-                for sym in by_level[level]:
-                    if sym.category == 'var':
-                        print(f"  │  {sym.name:20} : {sym.tipo:10} (variável)")
-                    elif sym.category == 'proc':
-                        params_str = ", ".join(f"{n}: {t}" for n, t in (sym.params or []))
-                        print(f"  │  {sym.name:20} ({params_str}) (procedure)")
-                    elif sym.category == 'func':
-                        params_str = ", ".join(f"{n}: {t}" for n, t in (sym.params or []))
-                        print(f"  │  {sym.name:20} ({params_str}) -> {sym.tipo} (function)")
+            parent = level - 1
+            print(f"\n╔═══════════════════════════════════════════════════════════════════╗")
+            print(f"║  📂 ESCOPO LOCAL nível {level}  (pai: nível {parent})                          ║")
+            print(f"╚═══════════════════════════════════════════════════════════════════╝")
         
-        print("=" * 80)
+        # Verificar se escopo está vazio
+        has_content = symbols['vars'] or symbols['procs'] or symbols['funcs']
+        
+        if not has_content:
+            print("   (escopo vazio)")
+        else:
+            # Imprimir cada categoria
+            self._print_variables_table(symbols['vars'])
+            self._print_procedures_table(symbols['procs'])
+            self._print_functions_table(symbols['funcs'])
+        
+        # Indicador de encadeamento
+        if level < total_levels - 1:
+            print(f"   ⬇️  encadeia com escopo filho (nível {level + 1})")
+    
+    def _print_variables_table(self, vars_list: List[VarSymbol]):
+        """Imprime tabela de variáveis"""
+        if not vars_list:
+            return
+        
+        print("\n   ┌─ Tabela de VARIÁVEIS ─────────────────────────────┐")
+        print(f"   │ {'Nome':<20} │ {'Tipo':<12} │ {'Parâmetro':<8} │")
+        print(f"   ├{'─'*22}┼{'─'*14}┼{'─'*10}┤")
+        
+        for var in vars_list:
+            is_param = "Sim ✓" if var.is_param else "Não"
+            print(f"   │ {var.name:<20} │ {var.var_type:<12} │ {is_param:<8} │")
+        
+        print(f"   └{'─'*22}┴{'─'*14}┴{'─'*10}┘")
+    
+    def _print_procedures_table(self, procs_list: List[ProcSymbol]):
+        """Imprime tabela de procedures"""
+        if not procs_list:
+            return
+        
+        print("\n   ┌─ Tabela de PROCEDURES ────────────────────────────────────────┐")
+        print(f"   │ {'Nome':<20} │ {'Parâmetros':<40} │")
+        print(f"   ├{'─'*22}┼{'─'*42}┤")
+        
+        for proc in procs_list:
+            if proc.params:
+                params_str = ", ".join(f"{n}:{t}" for n, t in proc.params)
+            else:
+                params_str = "(sem parâmetros)"
+            
+            if len(params_str) > 40:
+                params_str = params_str[:37] + "..."
+            
+            print(f"   │ {proc.name:<20} │ {params_str:<40} │")
+        
+        print(f"   └{'─'*22}┴{'─'*42}┘")
+    
+    def _print_functions_table(self, funcs_list: List[FuncSymbol]):
+        """Imprime tabela de functions"""
+        if not funcs_list:
+            return
+        
+        print("\n   ┌─ Tabela de FUNCTIONS ─────────────────────────────────────────────────┐")
+        print(f"   │ {'Nome':<20} │ {'Parâmetros':<30} │ {'Retorno':<12} │")
+        print(f"   ├{'─'*22}┼{'─'*32}┼{'─'*14}┤")
+        
+        for func in funcs_list:
+            if func.params:
+                params_str = ", ".join(f"{n}:{t}" for n, t in func.params)
+            else:
+                params_str = "()"
+            
+            if len(params_str) > 30:
+                params_str = params_str[:27] + "..."
+            
+            print(f"   │ {func.name:<20} │ {params_str:<30} │ {func.return_type:<12} │")
+        
+        print(f"   └{'─'*22}┴{'─'*32}┴{'─'*14}┘")
 
 
 def analyze_semantics(ast_root):
@@ -564,6 +720,5 @@ def analyze_semantics(ast_root):
     return success
 
 
-# Teste do analisador semântico
 if __name__ == '__main__':
     print("Analisador semântico - use o parser.py para testar")
