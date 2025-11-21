@@ -1,6 +1,5 @@
 import io
 from contextlib import redirect_stdout
-
 from interpreter import SemanticAnalyzer
 
 
