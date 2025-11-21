@@ -14,7 +14,10 @@
 
 import traceback
 
-from mepa_defs import *
+try:
+    from .mepa_defs import *  # tipo: ignore
+except ImportError:
+    from mepa_defs import *
 
 # Jump instructions
 JMP_INSTR = [ "jmp", "retproc", "call", "callpar" ]

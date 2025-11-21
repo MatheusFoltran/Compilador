@@ -17,11 +17,19 @@
 import sys, traceback, getopt
 
 if sys.argv[0].endswith("mepa_pt.py"):
-    from mepa_instr_pt import *
-    from mepa_strings_pt import *
-else: ## default en
-    from mepa_instr_en import *
-    from mepa_strings_en import *
+    try:
+        from .mepa_instr_pt import *  # tipo: ignore
+        from .mepa_strings_pt import *  # tipo: ignore
+    except ImportError:  # fallback quando executado como script fora do pacote
+        from mepa_instr_pt import *
+        from mepa_strings_pt import *
+else:  # default en
+    try:
+        from .mepa_instr_en import *  # tipo: ignore
+        from .mepa_strings_en import *  # tipo: ignore
+    except ImportError:
+        from mepa_instr_en import *
+        from mepa_strings_en import *
     
 Usage = """
 Usage:
