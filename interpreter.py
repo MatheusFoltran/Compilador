@@ -8,7 +8,7 @@ Analisador Semântico para Rascal - Versão com Estrutura Híbrida
 import sys
 from ast_nodes import *
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 class SemanticError(Exception):
     """Exceção para erros semânticos"""
@@ -116,16 +116,51 @@ class SymbolTable:
         # TUDO junto: vars, procs e funcs no mesmo dict
         self.scope_stack: List[Dict[str, Symbol]] = [{}]  # [0] = Global
         self.current_scope_level = 0
+        self.scope_sequence = 0
+        self.scope_stack_meta: List[Dict[str, Any]] = [
+            {
+                'level': 0,
+                'owner': 'global',
+                'category': 'global',
+                'label': 'GLOBAL',
+                'parent_level': None,
+                'parent_label': None,
+                'order': 0,
+                'status': 'active',
+            }
+        ]
+        # Escopos já removidos (guardados somente para visualização/debug)
+        self.archived_scopes: List[Dict[str, Any]] = []
     
-    def enter_scope(self):
+    def enter_scope(self, owner: Optional[str] = None, category: str = 'local'):
         """Entra em um novo escopo (procedure, function)"""
+        parent_meta = self.scope_stack_meta[-1]
         self.scope_stack.append({})
         self.current_scope_level += 1
+        self.scope_sequence += 1
+        label = owner or f"{category.upper()}_{self.scope_sequence}"
+        self.scope_stack_meta.append(
+            {
+                'level': self.current_scope_level,
+                'owner': owner,
+                'category': category,
+                'label': label,
+                'parent_level': parent_meta['level'],
+                'parent_label': parent_meta['label'],
+                'order': self.scope_sequence,
+                'status': 'active',
+            }
+        )
         
     def exit_scope(self):
-        """Sai do escopo atual (símbolos locais são descartados automaticamente)"""
+        """Sai do escopo atual, arquivando símbolos para debug/impressão"""
         if len(self.scope_stack) > 1:
-            self.scope_stack.pop()
+            popped_scope = self.scope_stack.pop()
+            meta = dict(self.scope_stack_meta.pop())
+            meta['status'] = 'archived'
+            meta['symbols'] = dict(popped_scope)
+            # Guardar cópia para evitar dependência do dict original
+            self.archived_scopes.append(meta)
             self.current_scope_level -= 1
     
     def declare(
@@ -206,26 +241,25 @@ class SymbolTable:
         """
         if level >= len(self.scope_stack):
             return {'vars': [], 'procs': [], 'funcs': []}
-        
-        scope = self.scope_stack[level]
-        result = {'vars': [], 'procs': [], 'funcs': []}
-        
-        # SEPARAÇÃO por tipo usando isinstance
+        return self._group_scope(self.scope_stack[level])
+
+    @staticmethod
+    def _group_scope(scope: Dict[str, Symbol]) -> Dict[str, List[Symbol]]:
+        """Separa um escopo (ativo ou arquivado) por categoria."""
+        grouped = {'vars': [], 'procs': [], 'funcs': []}
+
         for sym in scope.values():
             if isinstance(sym, FuncSymbol):
-                # FuncSymbol ANTES de ProcSymbol (herança)
-                result['funcs'].append(sym)
+                grouped['funcs'].append(sym)
             elif isinstance(sym, ProcSymbol):
-                result['procs'].append(sym)
+                grouped['procs'].append(sym)
             elif isinstance(sym, VarSymbol):
-                result['vars'].append(sym)
-        
-        # Ordenar por nome
-        result['vars'].sort(key=lambda s: s.name)
-        result['procs'].sort(key=lambda s: s.name)
-        result['funcs'].sort(key=lambda s: s.name)
-        
-        return result
+                grouped['vars'].append(sym)
+
+        for key in grouped:
+            grouped[key].sort(key=lambda s: s.name)
+
+        return grouped
     
     def __repr__(self):
         return f"SymbolTable(scopes={len(self.scope_stack)}, level={self.current_scope_level})"
@@ -310,7 +344,7 @@ class SemanticAnalyzer:
             return
         
         # Entrar no escopo da procedure
-        self.symbol_table.enter_scope()
+        self.symbol_table.enter_scope(owner=node.name, category='proc')
         
         # Declarar parâmetros como variáveis locais
         for param_name, param_type in params:
@@ -343,7 +377,7 @@ class SemanticAnalyzer:
             return
         
         # Entrar no escopo da function
-        self.symbol_table.enter_scope()
+        self.symbol_table.enter_scope(owner=node.name, category='func')
         
         # Declarar parâmetros como variáveis locais
         for param_name, param_type in params:
@@ -579,137 +613,125 @@ class SemanticAnalyzer:
     # ========== IMPRESSÃO DA TABELA ==========
     
     def print_symbol_table(self):
-        """
-        Imprime tabela de símbolos com SEPARAÇÃO por categoria
-        
-        Estratégia:
-        - Itera pela pilha de escopos (global → locais)
-        - Para cada escopo, SEPARA símbolos por tipo
-        - Imprime três tabelas: Variáveis, Procedures, Functions
-        """
-        print("\n" + "=" * 100)
-        print("TABELA DE SÍMBOLOS - Organização por Escopo e Categoria")
-        print("=" * 100)
-        print("Estrutura: Pilha de escopos | Busca: Do mais interno para o global")
-        print("=" * 100)
-        
-        total_scopes = len(self.symbol_table.scope_stack)
-        
-        # Verificar se há símbolos
-        has_symbols = False
-        for level in range(total_scopes):
-            symbols = self.symbol_table.get_symbols_by_category(level)
-            if symbols['vars'] or symbols['procs'] or symbols['funcs']:
-                has_symbols = True
-                break
-        
-        if not has_symbols:
-            print("  (tabela vazia)")
-            print("=" * 100)
+        """Imprime tabela de símbolos considerando escopos ativos e arquivados."""
+        print("\n" + "=" * 80)
+        print("TABELA DE SIMBOLOS (escopos ativos + arquivados)")
+        print("=" * 80)
+
+        scopes = self._collect_scopes_for_print()
+
+        if not scopes:
+            print("(tabela vazia)")
+            print("=" * 80)
             return
-        
-        # Imprimir cada escopo
-        for level in range(total_scopes):
-            self._print_scope(level, total_scopes)
-        
-        # Resumo
-        total_symbols = sum(
-            len(self.symbol_table.scope_stack[i])
-            for i in range(total_scopes)
-        )
-        print(f"\n📊 Resumo: {total_symbols} símbolo(s) em {total_scopes} nível(is) de escopo")
-        print("=" * 100)
-    
-    def _print_scope(self, level: int, total_levels: int):
-        """Imprime um escopo específico separado por categoria"""
-        
-        # Obter símbolos separados por categoria
-        symbols = self.symbol_table.get_symbols_by_category(level)
-        
-        # Cabeçalho do escopo
-        if level == 0:
-            print("\n╔═══════════════════════════════════════════════════════════════════╗")
-            print("║  🌍 ESCOPO GLOBAL (nível 0)                                       ║")
-            print("╚═══════════════════════════════════════════════════════════════════╝")
-        else:
-            parent = level - 1
-            print(f"\n╔═══════════════════════════════════════════════════════════════════╗")
-            print(f"║  📂 ESCOPO LOCAL nível {level}  (pai: nível {parent})                          ║")
-            print(f"╚═══════════════════════════════════════════════════════════════════╝")
-        
-        # Verificar se escopo está vazio
-        has_content = symbols['vars'] or symbols['procs'] or symbols['funcs']
-        
+
+        total_symbols = 0
+        for scope_info in scopes:
+            total_symbols += sum(len(scope_info['grouped'][cat]) for cat in ('vars', 'procs', 'funcs'))
+            self._print_scope(scope_info)
+
+        print("-" * 80)
+        print(f"Resumo: {total_symbols} simbolo(s) distribuidos em {len(scopes)} escopo(s) impressos.")
+        print("=" * 80)
+
+    def _collect_scopes_for_print(self) -> List[Dict[str, Any]]:
+        """Retorna lista de escopos com metadados e símbolos agrupados."""
+        scopes: List[Dict[str, Any]] = []
+        table = self.symbol_table
+
+        for scope_dict, meta in zip(table.scope_stack, table.scope_stack_meta):
+            meta_copy = dict(meta)
+            meta_copy['status'] = 'active'
+            scopes.append(
+                {
+                    'meta': meta_copy,
+                    'grouped': table._group_scope(scope_dict),
+                }
+            )
+
+        archived_sorted = sorted(table.archived_scopes, key=lambda item: item['order'])
+        for snapshot in archived_sorted:
+            meta_copy = dict(snapshot)
+            symbols_dict = meta_copy.pop('symbols', {})
+            meta_copy['status'] = 'archived'
+            scopes.append(
+                {
+                    'meta': meta_copy,
+                    'grouped': table._group_scope(symbols_dict),
+                }
+            )
+
+        return scopes
+
+    def _print_scope(self, scope_info: Dict[str, Any]):
+        """Imprime um escopo específico separado por categoria."""
+        meta = scope_info['meta']
+        grouped = scope_info['grouped']
+        header = self._format_scope_header(meta)
+
+        print("\n" + "-" * 80)
+        print(header)
+        print("-" * 80)
+
+        has_content = any(grouped[cat] for cat in ('vars', 'procs', 'funcs'))
         if not has_content:
-            print("   (escopo vazio)")
-        else:
-            # Imprimir cada categoria
-            self._print_variables_table(symbols['vars'])
-            self._print_procedures_table(symbols['procs'])
-            self._print_functions_table(symbols['funcs'])
-        
-        # Indicador de encadeamento
-        if level < total_levels - 1:
-            print(f"   ⬇️  encadeia com escopo filho (nível {level + 1})")
-    
+            print("  (escopo vazio)")
+            return
+
+        self._print_variables_table(grouped['vars'])
+        self._print_procedures_table(grouped['procs'])
+        self._print_functions_table(grouped['funcs'])
+
+    def _format_scope_header(self, meta: Dict[str, Any]) -> str:
+        label = meta.get('label') or f"NIVEL {meta.get('level', '?')}"
+        level = meta.get('level')
+        category = meta.get('category', 'local')
+        parent = meta.get('parent_label') or "-"
+        status = meta.get('status', 'active')
+        owner = meta.get('owner')
+        owner_part = f" | dono={owner}" if owner else ""
+        return (
+            f"Escopo {label} (nivel={level} | tipo={category} | pai={parent} | status={status}{owner_part})"
+        )
+
     def _print_variables_table(self, vars_list: List[VarSymbol]):
-        """Imprime tabela de variáveis"""
+        """Imprime tabela de variáveis em ASCII simples."""
+        print("  Variaveis:")
         if not vars_list:
+            print("    (nenhuma variavel)")
             return
-        
-        print("\n   ┌─ Tabela de VARIÁVEIS ─────────────────────────────┐")
-        print(f"   │ {'Nome':<20} │ {'Tipo':<12} │ {'Parâmetro':<8} │")
-        print(f"   ├{'─'*22}┼{'─'*14}┼{'─'*10}┤")
-        
+
+        print("    {0:<18} {1:<12} {2:<10}".format("Nome", "Tipo", "Parametro"))
+        print("    {0:<18} {1:<12} {2:<10}".format('-'*18, '-'*12, '-'*10))
         for var in vars_list:
-            is_param = "Sim ✓" if var.is_param else "Não"
-            print(f"   │ {var.name:<20} │ {var.var_type:<12} │ {is_param:<8} │")
-        
-        print(f"   └{'─'*22}┴{'─'*14}┴{'─'*10}┘")
-    
+            is_param = 'sim' if var.is_param else 'nao'
+            print(f"    {var.name:<18} {var.tipo:<12} {is_param:<10}")
+
     def _print_procedures_table(self, procs_list: List[ProcSymbol]):
-        """Imprime tabela de procedures"""
+        """Imprime tabela de procedures em ASCII simples."""
+        print("  Procedures:")
         if not procs_list:
+            print("    (nenhuma procedure)")
             return
-        
-        print("\n   ┌─ Tabela de PROCEDURES ────────────────────────────────────────┐")
-        print(f"   │ {'Nome':<20} │ {'Parâmetros':<40} │")
-        print(f"   ├{'─'*22}┼{'─'*42}┤")
-        
+
+        print("    {0:<18} {1}".format("Nome", "Parâmetros"))
+        print("    {0:<18} {1}".format('-'*18, '-'*40))
         for proc in procs_list:
-            if proc.params:
-                params_str = ", ".join(f"{n}:{t}" for n, t in proc.params)
-            else:
-                params_str = "(sem parâmetros)"
-            
-            if len(params_str) > 40:
-                params_str = params_str[:37] + "..."
-            
-            print(f"   │ {proc.name:<20} │ {params_str:<40} │")
-        
-        print(f"   └{'─'*22}┴{'─'*42}┘")
-    
+            params_str = ", ".join(f"{n}:{t}" for n, t in proc.params) if proc.params else "(sem parametros)"
+            print(f"    {proc.name:<18} {params_str}")
+
     def _print_functions_table(self, funcs_list: List[FuncSymbol]):
-        """Imprime tabela de functions"""
+        """Imprime tabela de functions em ASCII simples."""
+        print("  Functions:")
         if not funcs_list:
+            print("    (nenhuma funcao)")
             return
-        
-        print("\n   ┌─ Tabela de FUNCTIONS ─────────────────────────────────────────────────┐")
-        print(f"   │ {'Nome':<20} │ {'Parâmetros':<30} │ {'Retorno':<12} │")
-        print(f"   ├{'─'*22}┼{'─'*32}┼{'─'*14}┤")
-        
+
+        print("    {0:<18} {1:<26} {2}".format("Nome", "Parâmetros", "Retorno"))
+        print("    {0:<18} {1:<26} {2}".format('-'*18, '-'*26, '-'*10))
         for func in funcs_list:
-            if func.params:
-                params_str = ", ".join(f"{n}:{t}" for n, t in func.params)
-            else:
-                params_str = "()"
-            
-            if len(params_str) > 30:
-                params_str = params_str[:27] + "..."
-            
-            print(f"   │ {func.name:<20} │ {params_str:<30} │ {func.return_type:<12} │")
-        
-        print(f"   └{'─'*22}┴{'─'*32}┴{'─'*14}┘")
+            params_str = ", ".join(f"{n}:{t}" for n, t in func.params) if func.params else "()"
+            print(f"    {func.name:<18} {params_str:<26} {func.tipo}")
 
 
 def analyze_semantics(ast_root):

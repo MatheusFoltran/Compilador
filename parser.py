@@ -15,8 +15,10 @@ ESTRATÉGIA DE TRATAMENTO DE ERROS:
 2. FUNÇÃO p_error (GENÉRICA):
    - Último recurso quando nenhuma regra específica casa
    - Mensagem genérica: "token inesperado"
+   - EXCEÇÃO: Operadores seguidos (ex: a + * b) caem aqui por limitação do PLY
+     - PLY não consegue prever que operador é inválido até tentar todas as regras
+     - Para operadores, damos mensagem contextual sobre o que era esperado
    - Faz sincronização (modo pânico) em pontos seguros
-   - NÃO deve tratar casos específicos (isso vai nas regras acima)
 
 3. FLAG 'recovering':
    - Evita mensagens de erro em cascata
@@ -31,6 +33,8 @@ recovering = False
 # Rastreamento do último token para mensagens contextuais
 last_token = None
 tracked_lexer = None
+# Último parser construído (usado por p_error para evitar NameError)
+_active_parser = None
 
 # Precedência e associatividade
 precedence = (
@@ -585,43 +589,57 @@ def p_empty(p):
 # Tratamento de erros genérico (último recurso)
 # Esta função só é chamada quando NENHUMA regra de erro específica casa
 def p_error(p):
-    global error_count, recovering
+    global error_count, recovering, _active_parser
     
     # Evitar mensagens de erro em cascata
+    parser_obj = _active_parser
+
     if recovering:
-        if p:
-            parser.errok()
+        if p and parser_obj:
+            parser_obj.errok()
         return
     
     error_count += 1
     recovering = True
     
     if p:
-        # Mensagem genérica - casos específicos devem ser tratados nas regras de erro
-        print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
+        # NOTA: Operadores seguidos (ex: a + * b) caem aqui porque o PLY não consegue
+        # prever que um operador é inválido nesse contexto até tentar todas as regras.
+        # Damos mensagem contextual APENAS para operadores para melhorar a experiência.
+        if p.type in ('TIMES', 'DIV', 'AND'):
+            print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'. O parser esperava um fator (variável, número, '(', 'not' ou '-')")
+        elif p.type in ('PLUS', 'MINUS', 'OR'):
+            print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'. O parser esperava um termo")
+        else:
+            # Mensagem genérica para outros tokens
+            print(f"ERRO SINTÁTICO na linha {p.lineno}: token inesperado '{p.value}'")
         
         # Modo pânico: sincronizar em pontos seguros
         sync_count = 0
         while sync_count < 10:  # Limite de tokens para sincronização
-            tok = parser.token()
+            tok = parser_obj.token() if parser_obj else None
             if not tok:
                 break
             
             # Pontos de sincronização
             if tok.type in ('SEMI', 'END', 'BEGIN', 'DOT'):
-                parser.errok()
+                if parser_obj:
+                    parser_obj.errok()
                 return tok
             
             sync_count += 1
         
-        parser.errok()
+        if parser_obj:
+            parser_obj.errok()
     else:
         # EOF sem token - provavelmente falta algo no final do arquivo
         print("ERRO SINTÁTICO: fim de arquivo inesperado (EOF)")
 
 # Construir parser
 def make_parser():
-    return yacc.yacc(start='program')
+    global _active_parser
+    _active_parser = yacc.yacc(start='program')
+    return _active_parser
 
 # Teste do parser
 if __name__ == '__main__':
