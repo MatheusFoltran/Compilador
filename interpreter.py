@@ -430,8 +430,7 @@ class SemanticAnalyzer:
             self.error(str(e))
             return
         
-        # Preparar contador de retorno e entrar no escopo da function
-        self._func_return_stack.append({'name': node.name, 'count': 0})
+        # Entrar no escopo da function
         self.symbol_table.enter_scope(owner=node.name, category='func')
         
         # Declarar parâmetros como variáveis locais
@@ -444,17 +443,76 @@ class SemanticAnalyzer:
             except SemanticError as e:
                 self.error(str(e))
         
-        # Processar bloco da function
+        # Processar bloco da function (checagem semântica normal)
         self.visit(node.block)
 
-        # Após visitar o corpo, verificar existência exata de um retorno
-        ret_info = self._func_return_stack.pop() if self._func_return_stack else {'name': node.name, 'count': 0}
-        count = ret_info.get('count', 0)
-        if count == 0:
-            # Nenhuma atribuição ao identificador da função: erro semântico
-            self.error(f"Function '{node.name}' nao retorna valor")
-        # Se houver múltiplas atribuições estáticas (ex.: em ramos distintos),
-        # aceitaremos por enquanto (não tratamos análise de fluxo) — não é erro.
+        # Verificação flow-sensitive: calcular número mínimo/máximo de atribuições
+        # ao identificador da função que podem ocorrer em tempo de execução.
+        def compute_return_range(cmd_node):
+            """
+            Retorna tupla (min_count, max_count) onde max_count=None significa ilimitado (>1).
+            """
+            # Assign to function identifier
+            if isinstance(cmd_node, Assign):
+                if cmd_node.id == node.name:
+                    return (1, 1)
+                else:
+                    return (0, 0)
+
+            # Compound (sequence)
+            if isinstance(cmd_node, Compound):
+                min_sum = 0
+                max_sum = 0
+                for c in cmd_node.commands:
+                    mn, mx = compute_return_range(c)
+                    min_sum += mn
+                    if max_sum is None or mx is None:
+                        max_sum = None
+                    else:
+                        max_sum += mx
+                return (min_sum, max_sum)
+
+            # If: choose one branch
+            if isinstance(cmd_node, If):
+                then_range = compute_return_range(cmd_node.then_cmd)
+                else_range = compute_return_range(cmd_node.else_cmd) if cmd_node.else_cmd else (0, 0)
+                min_count = min(then_range[0], else_range[0])
+                # max is the more permissive branch
+                if then_range[1] is None or else_range[1] is None:
+                    max_count = None
+                else:
+                    max_count = max(then_range[1], else_range[1])
+                return (min_count, max_count)
+
+            # While: can execute 0..N times; conservative
+            if isinstance(cmd_node, While):
+                body_min, body_max = compute_return_range(cmd_node.body)
+                # min can be 0 (loop may not execute)
+                if body_max is None or body_max > 0:
+                    return (0, None)
+                return (0, 0)
+
+            # For other commands (Read, Write, ProcCall, FuncCall, Var, etc.)
+            # they do not directly assign to the function identifier
+            return (0, 0)
+
+        # Compute range for the function body (compound command inside block)
+        try:
+            compound_cmd = node.block.compound
+        except Exception:
+            compound_cmd = None
+
+        if compound_cmd is None:
+            self.error(f"Function '{node.name}' sem corpo válido para verificação de retorno")
+        else:
+            mn, mx = compute_return_range(compound_cmd)
+            # Interpret max=None as >1 (unbounded)
+            if mn == 0:
+                self.error(f"Function '{node.name}' nao retorna valor")
+            elif mx is None or mx > 1:
+                self.error(
+                    f"Function '{node.name}' pode atribuir ao identificador mais de uma vez; deve haver exatamente uma atribuição por execução"
+                )
 
         # Sair do escopo
         self.symbol_table.exit_scope()
@@ -486,15 +544,9 @@ class SemanticAnalyzer:
         if expr_type != symbol.tipo and expr_type != 'unknown':
             self.error(f"Atribuição incompatível: '{node.id}' é {symbol.tipo}, "
                       f"mas expressão é {expr_type}")
-        # Se atribuirmos ao identificador da função atual, atualizar contador
-        try:
-            if symbol.category == 'func' and self._func_return_stack:
-                current = self._func_return_stack[-1]
-                if node.id == current.get('name'):
-                    current['count'] = current.get('count', 0) + 1
-        except Exception:
-            # defesa em caso de estruturas inesperadas; não interrompe a análise
-            pass
+        # Note: counting of function-return assignments is now done via
+        # a flow-sensitive helper (compute_return_range) in visit_FuncDecl.
+        # We keep this method focused on type checking only.
     
     def visit_Write(self, node):
         """Visita o nó Write"""
