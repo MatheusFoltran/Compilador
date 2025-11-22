@@ -494,6 +494,32 @@ class MepaEmitter:
         if local_count:
             self.alloc(local_count)
 
+        # Inicializar variáveis locais (zerar). Muitos exercícios esperam
+        # que tipos escalares comecem com 0/false. Aqui buscamos o
+        # snapshot arquivado que contém os símbolos do escopo e, para
+        # cada variável local (não parâmetro), emitimos "ldct 0; stvl",
+        # usando o nível léxico e o offset já calculados em compute_offsets.
+        snap = None
+        for s in self.symbol_table.archived_scopes:
+            if s.get('owner') == node.name:
+                snap = s
+                break
+        if snap:
+            symbols = snap.get('symbols', {})
+            # ordenar por offset para emitir em ordem (opcional)
+            locals_to_init = []
+            for nm, sym in symbols.items():
+                # VarSymbol instances representam variáveis/params
+                if getattr(sym, 'category', None) == 'var' and not getattr(sym, 'is_param', False):
+                    off = getattr(sym, 'offset', None)
+                    lvl = getattr(sym, 'scope_level', level)
+                    if off is not None and lvl is not None:
+                        locals_to_init.append((lvl, off))
+            locals_to_init.sort(key=lambda t: t[1])
+            for lvl, off in locals_to_init:
+                self.ldct(0)
+                self.stvl(lvl, off)
+
         # corpo
         self.gen_Block(node.block)
 
@@ -521,6 +547,26 @@ class MepaEmitter:
         self.entproc(level)
         if local_count:
             self.alloc(local_count)
+
+        # Inicializar locais (mesma lógica que em procedures)
+        snap = None
+        for s in self.symbol_table.archived_scopes:
+            if s.get('owner') == node.name:
+                snap = s
+                break
+        if snap:
+            symbols = snap.get('symbols', {})
+            locals_to_init = []
+            for nm, sym in symbols.items():
+                if getattr(sym, 'category', None) == 'var' and not getattr(sym, 'is_param', False):
+                    off = getattr(sym, 'offset', None)
+                    lvl = getattr(sym, 'scope_level', level)
+                    if off is not None and lvl is not None:
+                        locals_to_init.append((lvl, off))
+            locals_to_init.sort(key=lambda t: t[1])
+            for lvl, off in locals_to_init:
+                self.ldct(0)
+                self.stvl(lvl, off)
 
         # corpo
         self.gen_Block(node.block)

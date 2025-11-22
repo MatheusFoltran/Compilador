@@ -3,5 +3,5 @@ __pycache__/
 parser.out
 parsetab.py
 examples/
-out_program.mepa
+output_mepa/
 .vscode/
