@@ -60,7 +60,7 @@ class Compound(No):
 class Assign(Cmd):
     id: str
     expr: Expr
-    # Source position for diagnostics (set by parser when available)
+    # Posição de origem para diagnósticos.
     lineno: Optional[int] = None
     # Anotações semânticas
     var_type: Optional[str] = None       # Tipo da variável
@@ -144,7 +144,7 @@ class Bool(Expr):
     # Tipo é sempre 'boolean'
     tipo: str = 'boolean'
 
-
+# Apenas para visualização da AST (debugging). A função abaixo não é usada na execução.
 def write_ast_verbose(no, out=sys.stdout, indent=0):
     """Escreve a AST em formato mais detalhado e legível"""
     prefix = "  " * indent
@@ -298,6 +298,7 @@ def write_ast_verbose(no, out=sys.stdout, indent=0):
     
     out.write(f"<{type(no).__name__}>")
 
+# Método alternativo de visualização. A função abaixo não é usada na execução.
 def write_ast(no, out=sys.stdout, indent=0):
     """Escreve a AST em formato S-expression (Lisp-like)"""
     

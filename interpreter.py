@@ -5,7 +5,6 @@ Analisador Semântico para Rascal - Versão com Estrutura Híbrida
 - Pilha de escopos para controle léxico
 """
 
-import sys
 from ast_nodes import *
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
@@ -477,7 +476,7 @@ class SemanticAnalyzer:
                     assigns.extend(alist)
                 return (min_sum, max_sum, assigns)
 
-            # If: choose one branch
+            # If: escolhe um ramo
             if isinstance(cmd_node, If):
                 then_mn, then_mx, then_assigns = compute_return_range(cmd_node.then_cmd)
                 if cmd_node.else_cmd:
@@ -486,7 +485,7 @@ class SemanticAnalyzer:
                     else_mn, else_mx, else_assigns = (0, 0, [])
 
                 min_count = min(then_mn, else_mn)
-                # max is the more permissive branch
+                # max é o mais permissivo entre os ramos
                 if then_mx is None or else_mx is None:
                     max_count = None
                 else:
@@ -495,19 +494,19 @@ class SemanticAnalyzer:
                 assigns = then_assigns + else_assigns
                 return (min_count, max_count, assigns)
 
-            # While: can execute 0..N times; conservative
+            # While: pode executar 0..N vezes; conservador
             if isinstance(cmd_node, While):
                 body_min, body_max, body_assigns = compute_return_range(cmd_node.body)
-                # min can be 0 (loop may not execute)
+                # min pode ser 0 (loop pode não executar)
                 if body_max is None or body_max > 0:
                     return (0, None, body_assigns)
                 return (0, 0, [])
 
-            # For other commands (Read, Write, ProcCall, FuncCall, Var, etc.)
-            # they do not directly assign to the function identifier
+            # Para outros comandos (Read, Write, ProcCall, FuncCall, Var, etc.)
+            # eles não atribuem diretamente ao identificador da função
             return (0, 0, [])
 
-        # Compute range for the function body (compound command inside block)
+        # Calcular intervalo para o corpo da função (comando composto dentro do bloco)
         try:
             compound_cmd = node.block.compound
         except Exception:
@@ -517,7 +516,7 @@ class SemanticAnalyzer:
             self.error(f"Function '{node.name}' sem corpo válido para verificação de retorno")
         else:
             mn, mx, assigns = compute_return_range(compound_cmd)
-            # Interpret max=None as >1 (unbounded)
+            # Interpretar max=None como >1 (não limitado)
             if mn == 0:
                 # Não há caminho garantido com retorno
                 if assigns:
@@ -572,9 +571,9 @@ class SemanticAnalyzer:
         if expr_type != symbol.tipo and expr_type != 'unknown':
             self.error(f"Atribuição incompatível: '{node.id}' é {symbol.tipo}, "
                       f"mas expressão é {expr_type}")
-        # Note: counting of function-return assignments is now done via
-        # a flow-sensitive helper (compute_return_range) in visit_FuncDecl.
-        # We keep this method focused on type checking only.
+        # Observação: a contagem das atribuições de retorno de função agora é feita por meio
+        # da função auxiliar sensível ao fluxo (compute_return_range) em visit_FuncDecl.
+        # Mantemos este método focado apenas na verificação de tipos.
     
     def visit_Write(self, node):
         """Visita o nó Write"""
@@ -698,7 +697,7 @@ class SemanticAnalyzer:
         right_type = self.visit(node.right)
         
         result_type = 'unknown'
-        # Arithmetic operators require integer operands and yield integer
+        # Operadores aritméticos: operandos devem ser integer
         if node.op in ['+', '-', '*', 'div']:
             if left_type != 'integer' or right_type != 'integer':
                 self.error(
@@ -707,7 +706,7 @@ class SemanticAnalyzer:
                 )
             result_type = 'integer'
 
-        # Equality operators: operands must be of the same primitive type
+        # Operadores de igualdade: operandos devem ser do mesmo tipo primitivo
         elif node.op in ['=', '<>']:
             if left_type != right_type:
                 self.error(
@@ -716,7 +715,7 @@ class SemanticAnalyzer:
                 )
             result_type = 'boolean'
 
-        # Relational operators (<, <=, >, >=): operands must be integer
+        # Operadores relacionais (<, <=, >, >=): operandos devem ser integer
         elif node.op in ['<', '<=', '>', '>=']:
             if left_type != 'integer' or right_type != 'integer':
                 self.error(
@@ -790,6 +789,7 @@ class SemanticAnalyzer:
         return 'boolean'
     
     # ========== IMPRESSÃO DA TABELA ==========
+    # Apenas para debug/visualização após análise semântica
     
     def print_symbol_table(self):
         """Imprime tabela de símbolos considerando escopos ativos e arquivados."""

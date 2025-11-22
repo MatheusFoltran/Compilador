@@ -2,6 +2,6 @@ venv/
 __pycache__/
 parser.out
 parsetab.py
-examples/
 output_mepa/
+output_main/
 .vscode/

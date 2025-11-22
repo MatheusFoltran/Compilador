@@ -69,14 +69,13 @@ def compute_offsets(ast_root: Program, symbol_table) -> None:
         archived_by_owner[key] = snap
 
     # 1) Escopo global: topo de `scope_stack` no nível 0
-    # calcular offsets para variáveis globais seguindo a ordem de
-    # declaração no programa
+    # calcular offsets para variáveis globais seguindo a ordem de declaração no programa
     global_scope = symbol_table.scope_stack[0]
     P = 0
-    # parameters none for global; locals are program-level vars
+    # parâmetros não existem para o escopo global; locais são variáveis do programa
     if ast_root and isinstance(ast_root, Program):
         glob_block = ast_root.block
-        # assign offsets for globals in declaration order
+        # atribuir offsets para variáveis globais na ordem de declaração
         offset = 0
         for var_decl in glob_block.var_decls:
             for vid in var_decl.ids:
@@ -140,13 +139,11 @@ def compute_offsets(ast_root: Program, symbol_table) -> None:
         # pai — tentamos localizá-lo em snapshots arquivados ou nas
         # tabelas ativas.
         proc_symbol = None
-        # search in archived snapshots
+        # procura em snapshots arquivados
         for snap2 in symbol_table.archived_scopes:
             if snap2.get('owner') == owner:
-                # parent snapshot contains the symbol? usually declaring scope
-                # is the parent meta; try to find in parent scope dict
                 parent_level = snap2.get('parent_level')
-                # find the scope dict at parent_level
+                # encontrar o dicionário de escopo no nível parent_level
                 if parent_level is not None and parent_level < len(symbol_table.scope_stack):
                     parent_scope = symbol_table.scope_stack[parent_level]
                     if owner in parent_scope:
@@ -208,7 +205,7 @@ def compute_offsets(ast_root: Program, symbol_table) -> None:
                             break
             if offset is not None:
                 setattr(node, 'offset', offset)
-        # recurse
+        
         for attr in getattr(node, '__dict__', {}):
             child = getattr(node, attr)
             if isinstance(child, list):
