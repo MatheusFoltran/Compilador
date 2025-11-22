@@ -670,23 +670,40 @@ class SemanticAnalyzer:
         right_type = self.visit(node.right)
         
         result_type = 'unknown'
-        
+        # Arithmetic operators require integer operands and yield integer
         if node.op in ['+', '-', '*', 'div']:
             if left_type != 'integer' or right_type != 'integer':
-                self.error(f"Operador '{node.op}' requer operandos integer, "
-                          f"mas recebeu {left_type} e {right_type}")
+                self.error(
+                    f"Operador '{node.op}' requer operandos integer, "
+                    f"mas recebeu {left_type} e {right_type}"
+                )
             result_type = 'integer'
-        
-        elif node.op in ['=', '<>', '<', '<=', '>', '>=']:
+
+        # Equality operators: operands must be of the same primitive type
+        elif node.op in ['=', '<>']:
             if left_type != right_type:
-                self.error(f"Operador '{node.op}' requer operandos do mesmo tipo, "
-                          f"mas recebeu {left_type} e {right_type}")
+                self.error(
+                    f"Operador '{node.op}' requer operandos do mesmo tipo primitivo, "
+                    f"mas recebeu {left_type} e {right_type}"
+                )
             result_type = 'boolean'
-        
+
+        # Relational operators (<, <=, >, >=): operands must be integer
+        elif node.op in ['<', '<=', '>', '>=']:
+            if left_type != 'integer' or right_type != 'integer':
+                self.error(
+                    f"Operador relacional '{node.op}' requer operandos integer, "
+                    f"mas recebeu {left_type} e {right_type}"
+                )
+            result_type = 'boolean'
+
+        # Logical operators
         elif node.op in ['and', 'or']:
             if left_type != 'boolean' or right_type != 'boolean':
-                self.error(f"Operador '{node.op}' requer operandos boolean, "
-                          f"mas recebeu {left_type} e {right_type}")
+                self.error(
+                    f"Operador '{node.op}' requer operandos boolean, "
+                    f"mas recebeu {left_type} e {right_type}"
+                )
             result_type = 'boolean'
         
         else:
