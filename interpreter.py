@@ -14,6 +14,11 @@ class SemanticError(Exception):
     """Exceção para erros semânticos"""
     pass
 
+
+class SemanticWarning(Exception):
+    """Exceção leve usada para sinalizar alertas semânticos (não fatais)."""
+    pass
+
 ParamList = List[Tuple[str, str]]
 
 
@@ -189,8 +194,8 @@ class SymbolTable:
 
         # Verifica duplicação APENAS no escopo atual
         if name in current_scope:
-            raise SemanticError(
-                f"{category.capitalize()} '{name}' já foi declarada neste escopo"
+            raise SemanticWarning(
+                f"{category.capitalize()} '{name}' já foi declarada neste escopo; nova declaração ignorada"
             )
 
         # Criar o símbolo apropriado
@@ -292,6 +297,7 @@ class SemanticAnalyzer:
         self.symbol_table = SymbolTable()
         self.errors = []
         self.has_errors = False
+        self.warnings: List[str] = []
         # pilha para rastrear atribuições ao identificador da função
         # cada item: {'name': str, 'count': int}
         self._func_return_stack: List[Dict[str, int]] = []
@@ -301,6 +307,12 @@ class SemanticAnalyzer:
         self.errors.append(f"ERRO SEMÂNTICO: {message}")
         self.has_errors = True
         print(f"ERRO SEMÂNTICO: {message}")
+
+    def warning(self, message):
+        """Registra um alerta semântico (não interrompe a análise)."""
+        note = f"ALERTA SEMÂNTICO: {message}"
+        self.warnings.append(note)
+        print(note)
     
     def analyze(self, node):
         """Inicia a análise semântica"""
@@ -328,6 +340,8 @@ class SemanticAnalyzer:
         # Declarar identificador do programa no escopo global
         try:
             self.symbol_table.declare(node.name, 'program')
+        except SemanticWarning as w:
+            self.warning(str(w))
         except SemanticError as e:
             # já registrado erro de duplicação se houver
             self.error(str(e))
@@ -354,6 +368,8 @@ class SemanticAnalyzer:
             try:
                 self.symbol_table.declare(var_name, 'var', node.tipo)
                 print(f"  ✓ Variável '{var_name}' declarada como {node.tipo} (nível {self.symbol_table.current_scope_level})")
+            except SemanticWarning as w:
+                self.warning(str(w))
             except SemanticError as e:
                 self.error(str(e))
     
@@ -369,6 +385,9 @@ class SemanticAnalyzer:
         try:
             self.symbol_table.declare(node.name, 'proc', params=params)
             print(f"  ✓ Procedure '{node.name}' declarada com {len(params)} parâmetro(s)")
+        except SemanticWarning as w:
+            self.warning(str(w))
+            return
         except SemanticError as e:
             self.error(str(e))
             return
@@ -381,6 +400,8 @@ class SemanticAnalyzer:
             try:
                 self.symbol_table.declare(param_name, 'var', param_type, is_param=True)
                 print(f"    • Parâmetro '{param_name}' : {param_type}")
+            except SemanticWarning as w:
+                self.warning(str(w))
             except SemanticError as e:
                 self.error(str(e))
         
@@ -402,6 +423,9 @@ class SemanticAnalyzer:
         try:
             self.symbol_table.declare(node.name, 'func', node.return_type, params)
             print(f"  ✓ Function '{node.name}' declarada: {len(params)} parâmetro(s) -> {node.return_type}")
+        except SemanticWarning as w:
+            self.warning(str(w))
+            return
         except SemanticError as e:
             self.error(str(e))
             return
@@ -415,6 +439,8 @@ class SemanticAnalyzer:
             try:
                 self.symbol_table.declare(param_name, 'var', param_type, is_param=True)
                 print(f"    • Parâmetro '{param_name}' : {param_type}")
+            except SemanticWarning as w:
+                self.warning(str(w))
             except SemanticError as e:
                 self.error(str(e))
         
@@ -676,7 +702,7 @@ class SemanticAnalyzer:
 
         total_symbols = 0
         for scope_info in scopes:
-            total_symbols += sum(len(scope_info['grouped'][cat]) for cat in ('vars', 'procs', 'funcs'))
+            total_symbols += sum(len(scope_info['grouped'][cat]) for cat in ('programs','vars', 'procs', 'funcs'))
             self._print_scope(scope_info)
 
         print("-" * 80)
