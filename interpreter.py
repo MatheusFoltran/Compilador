@@ -97,6 +97,18 @@ class FuncSymbol(ProcSymbol):
         )
 
 
+@dataclass
+class ProgramSymbol(Symbol):
+    """Símbolo para o identificador do programa (categoria 'program')."""
+
+    @property
+    def category(self) -> str:
+        return 'program'
+
+    def __repr__(self) -> str:
+        return f"Symbol(program {self.name}, level={self.scope_level})"
+
+
 class SymbolTable:
     """
     Tabela de símbolos com pilha de escopos
@@ -207,7 +219,13 @@ class SymbolTable:
                 return_type=tipo,
             )
         else:
-            raise SemanticError(f"Categoria desconhecida: {category}")
+            if category == 'program':
+                # Declarar identificador do programa (sem parâmetros)
+                symbol = ProgramSymbol(
+                    name=name, scope_level=self.current_scope_level
+                )
+            else:
+                raise SemanticError(f"Categoria desconhecida: {category}")
 
         # Inserir no dicionário do escopo atual
         current_scope[name] = symbol
@@ -246,7 +264,7 @@ class SymbolTable:
     @staticmethod
     def _group_scope(scope: Dict[str, Symbol]) -> Dict[str, List[Symbol]]:
         """Separa um escopo (ativo ou arquivado) por categoria."""
-        grouped = {'vars': [], 'procs': [], 'funcs': []}
+        grouped = {'programs': [], 'vars': [], 'procs': [], 'funcs': []}
 
         for sym in scope.values():
             if isinstance(sym, FuncSymbol):
@@ -255,6 +273,8 @@ class SymbolTable:
                 grouped['procs'].append(sym)
             elif isinstance(sym, VarSymbol):
                 grouped['vars'].append(sym)
+            elif isinstance(sym, ProgramSymbol):
+                grouped['programs'].append(sym)
 
         for key in grouped:
             grouped[key].sort(key=lambda s: s.name)
@@ -302,6 +322,13 @@ class SemanticAnalyzer:
     
     def visit_Program(self, node):
         """Visita o nó Program"""
+        # Declarar identificador do programa no escopo global
+        try:
+            self.symbol_table.declare(node.name, 'program')
+        except SemanticError as e:
+            # já registrado erro de duplicação se houver
+            self.error(str(e))
+
         print(f"\n→ Analisando programa '{node.name}'...")
         self.visit(node.block)
     
@@ -673,11 +700,13 @@ class SemanticAnalyzer:
         print(header)
         print("-" * 80)
 
-        has_content = any(grouped[cat] for cat in ('vars', 'procs', 'funcs'))
+        has_content = any(grouped[cat] for cat in ('programs','vars', 'procs', 'funcs'))
         if not has_content:
             print("  (escopo vazio)")
             return
 
+        # imprimir programa (se existir), variáveis, procedures e functions
+        self._print_program_table(grouped.get('programs', []))
         self._print_variables_table(grouped['vars'])
         self._print_procedures_table(grouped['procs'])
         self._print_functions_table(grouped['funcs'])
@@ -719,6 +748,17 @@ class SemanticAnalyzer:
         for proc in procs_list:
             params_str = ", ".join(f"{n}:{t}" for n, t in proc.params) if proc.params else "(sem parametros)"
             print(f"    {proc.name:<18} {params_str}")
+
+    def _print_program_table(self, prog_list: List[ProgramSymbol]):
+        """Imprime o identificador do programa, se presente."""
+        print("  Programa:")
+        if not prog_list:
+            print("    (nenhum programa declarado)")
+            return
+        print("    {0:<18} {1}".format("Nome", "Nivel"))
+        print("    {0:<18} {1}".format('-'*18, '-'*5))
+        for prog in prog_list:
+            print(f"    {prog.name:<18} {prog.scope_level}")
 
     def _print_functions_table(self, funcs_list: List[FuncSymbol]):
         """Imprime tabela de functions em ASCII simples."""
