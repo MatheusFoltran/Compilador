@@ -565,7 +565,14 @@ class SemanticAnalyzer:
                 var_types.append('unknown')
             else:
                 symbol = self.symbol_table.lookup(var_name)
-                var_types.append(symbol.tipo)
+                # O argumento de read deve ser uma variável (não procedure/func)
+                if symbol.category != 'var':
+                    self.error(
+                        f"Argumento de 'read' '{var_name}' não é uma variável (é {symbol.category})"
+                    )
+                    var_types.append('unknown')
+                else:
+                    var_types.append(symbol.tipo)
         node.var_types = var_types
     
     def visit_If(self, node):
