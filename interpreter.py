@@ -292,6 +292,9 @@ class SemanticAnalyzer:
         self.symbol_table = SymbolTable()
         self.errors = []
         self.has_errors = False
+        # pilha para rastrear atribuições ao identificador da função
+        # cada item: {'name': str, 'count': int}
+        self._func_return_stack: List[Dict[str, int]] = []
     
     def error(self, message):
         """Registra um erro semântico"""
@@ -403,7 +406,8 @@ class SemanticAnalyzer:
             self.error(str(e))
             return
         
-        # Entrar no escopo da function
+        # Preparar contador de retorno e entrar no escopo da function
+        self._func_return_stack.append({'name': node.name, 'count': 0})
         self.symbol_table.enter_scope(owner=node.name, category='func')
         
         # Declarar parâmetros como variáveis locais
@@ -416,7 +420,16 @@ class SemanticAnalyzer:
         
         # Processar bloco da function
         self.visit(node.block)
-        
+
+        # Após visitar o corpo, verificar existência exata de um retorno
+        ret_info = self._func_return_stack.pop() if self._func_return_stack else {'name': node.name, 'count': 0}
+        count = ret_info.get('count', 0)
+        if count == 0:
+            # Nenhuma atribuição ao identificador da função: erro semântico
+            self.error(f"Function '{node.name}' nao retorna valor")
+        # Se houver múltiplas atribuições estáticas (ex.: em ramos distintos),
+        # aceitaremos por enquanto (não tratamos análise de fluxo) — não é erro.
+
         # Sair do escopo
         self.symbol_table.exit_scope()
     
@@ -447,6 +460,15 @@ class SemanticAnalyzer:
         if expr_type != symbol.tipo and expr_type != 'unknown':
             self.error(f"Atribuição incompatível: '{node.id}' é {symbol.tipo}, "
                       f"mas expressão é {expr_type}")
+        # Se atribuirmos ao identificador da função atual, atualizar contador
+        try:
+            if symbol.category == 'func' and self._func_return_stack:
+                current = self._func_return_stack[-1]
+                if node.id == current.get('name'):
+                    current['count'] = current.get('count', 0) + 1
+        except Exception:
+            # defesa em caso de estruturas inesperadas; não interrompe a análise
+            pass
     
     def visit_Write(self, node):
         """Visita o nó Write"""
