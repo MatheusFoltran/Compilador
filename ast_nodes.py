@@ -60,6 +60,8 @@ class Compound(No):
 class Assign(Cmd):
     id: str
     expr: Expr
+    # Source position for diagnostics (set by parser when available)
+    lineno: Optional[int] = None
     # Anotações semânticas
     var_type: Optional[str] = None       # Tipo da variável
     var_scope_level: Optional[int] = None  # Nível léxico

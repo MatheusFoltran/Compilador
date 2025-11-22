@@ -381,7 +381,8 @@ def p_comando(p):
 # <atribuição> ::= <identificador> ':=' <expressão>
 def p_atribuicao(p):
     'atribuicao : ID ASSIGN expressao'
-    p[0] = Assign(p[1], p[3])
+    # Attach source line number for diagnostics
+    p[0] = Assign(p[1], p[3], lineno=p.lineno(1))
 
 # Erro: atribuição incompleta
 def p_atribuicao_error(p):
@@ -396,6 +397,11 @@ def p_atribuicao_error(p):
         else:
             print(f"ERRO SINTÁTICO: expressão inválida na atribuição")
     p[0] = Assign(p[1], Num(0))
+    # Ensure lineno is present in error cases as well
+    try:
+        p[0].lineno = p.lineno(1)
+    except Exception:
+        pass
 
 # <chamada_procedimento> ::= <identificador> '(' [ <lista_expressões> ] ')'
 def p_chamada_procedimento(p):

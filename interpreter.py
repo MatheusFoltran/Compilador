@@ -450,51 +450,62 @@ class SemanticAnalyzer:
         # ao identificador da função que podem ocorrer em tempo de execução.
         def compute_return_range(cmd_node):
             """
-            Retorna tupla (min_count, max_count) onde max_count=None significa ilimitado (>1).
+            Retorna tupla (min_count, max_count, assigns)
+            onde max_count=None significa ilimitado (>1), e assigns é a lista
+            de nós Assign que atribuem ao identificador da função dentro do
+            subtree analisado (útil para mensagens de erro).
             """
             # Assign to function identifier
             if isinstance(cmd_node, Assign):
                 if cmd_node.id == node.name:
-                    return (1, 1)
+                    return (1, 1, [cmd_node])
                 else:
-                    return (0, 0)
+                    return (0, 0, [])
 
             # Compound (sequence)
             if isinstance(cmd_node, Compound):
                 min_sum = 0
                 max_sum = 0
+                assigns = []
                 for c in cmd_node.commands:
-                    mn, mx = compute_return_range(c)
+                    mn, mx, alist = compute_return_range(c)
                     min_sum += mn
                     if max_sum is None or mx is None:
                         max_sum = None
                     else:
                         max_sum += mx
-                return (min_sum, max_sum)
+                    assigns.extend(alist)
+                return (min_sum, max_sum, assigns)
 
             # If: choose one branch
             if isinstance(cmd_node, If):
-                then_range = compute_return_range(cmd_node.then_cmd)
-                else_range = compute_return_range(cmd_node.else_cmd) if cmd_node.else_cmd else (0, 0)
-                min_count = min(then_range[0], else_range[0])
+                then_mn, then_mx, then_assigns = compute_return_range(cmd_node.then_cmd)
+                if cmd_node.else_cmd:
+                    else_mn, else_mx, else_assigns = compute_return_range(cmd_node.else_cmd)
+                else:
+                    else_mn, else_mx, else_assigns = (0, 0, [])
+
+                min_count = min(then_mn, else_mn)
                 # max is the more permissive branch
-                if then_range[1] is None or else_range[1] is None:
+                if then_mx is None or else_mx is None:
                     max_count = None
                 else:
-                    max_count = max(then_range[1], else_range[1])
-                return (min_count, max_count)
+                    max_count = max(then_mx, else_mx)
+
+                assigns = then_assigns + else_assigns
+                return (min_count, max_count, assigns)
 
             # While: can execute 0..N times; conservative
             if isinstance(cmd_node, While):
-                body_min, body_max = compute_return_range(cmd_node.body)
+                body_min, body_max, body_assigns = compute_return_range(cmd_node.body)
                 # min can be 0 (loop may not execute)
                 if body_max is None or body_max > 0:
-                    return (0, None)
-                return (0, 0)
+                    return (0, None, body_assigns)
+                return (0, 0, [])
 
             # For other commands (Read, Write, ProcCall, FuncCall, Var, etc.)
             # they do not directly assign to the function identifier
-            return (0, 0)
+            return (0, 0, [])
 
         # Compute range for the function body (compound command inside block)
         try:
@@ -505,14 +516,31 @@ class SemanticAnalyzer:
         if compound_cmd is None:
             self.error(f"Function '{node.name}' sem corpo válido para verificação de retorno")
         else:
-            mn, mx = compute_return_range(compound_cmd)
+            mn, mx, assigns = compute_return_range(compound_cmd)
             # Interpret max=None as >1 (unbounded)
             if mn == 0:
-                self.error(f"Function '{node.name}' nao retorna valor")
+                # Não há caminho garantido com retorno
+                if assigns:
+                    lines = [a.lineno for a in assigns if getattr(a, 'lineno', None) is not None]
+                    if lines:
+                        self.error(
+                            f"Function '{node.name}' nao retorna em todos os caminhos; atribuições encontradas nas linhas: {', '.join(map(str, lines))}"
+                        )
+                    else:
+                        self.error(f"Function '{node.name}' nao retorna em todos os caminhos; sem atribuições localizadas")
+                else:
+                    self.error(f"Function '{node.name}' nao retorna valor em nenhum caminho")
             elif mx is None or mx > 1:
-                self.error(
-                    f"Function '{node.name}' pode atribuir ao identificador mais de uma vez; deve haver exatamente uma atribuição por execução"
-                )
+                # Múltiplas atribuições possíveis em uma execução
+                lines = [a.lineno for a in assigns if getattr(a, 'lineno', None) is not None]
+                if lines:
+                    self.error(
+                        f"Function '{node.name}' pode atribuir ao identificador mais de uma vez por execução; exemplos de linhas: {', '.join(map(str, lines))}"
+                    )
+                else:
+                    self.error(
+                        f"Function '{node.name}' pode atribuir ao identificador mais de uma vez por execução"
+                    )
 
         # Sair do escopo
         self.symbol_table.exit_scope()
