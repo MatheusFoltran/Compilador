@@ -507,6 +507,7 @@ class MepaEmitter:
         if snap:
             symbols = snap.get('symbols', {})
             # ordenar por offset para emitir em ordem (opcional)
+            # coletar como (name, level, offset) para permitir heurística
             locals_to_init = []
             for nm, sym in symbols.items():
                 # VarSymbol instances representam variáveis/params
@@ -514,9 +515,27 @@ class MepaEmitter:
                     off = getattr(sym, 'offset', None)
                     lvl = getattr(sym, 'scope_level', level)
                     if off is not None and lvl is not None:
-                        locals_to_init.append((lvl, off))
-            locals_to_init.sort(key=lambda t: t[1])
-            for lvl, off in locals_to_init:
+                        locals_to_init.append((nm, lvl, off))
+            locals_to_init.sort(key=lambda t: t[2])
+
+            # Heurística simples: se o primeiro comando do corpo for uma
+            # atribuição incondicional do tipo `id := 0`, não emitir a
+            # inicialização automática para esse identificador.
+            skip_inits = set()
+            try:
+                first_cmd = node.block.compound.commands[0]
+            except Exception:
+                first_cmd = None
+            if first_cmd is not None:
+                from ast_nodes import Assign, Num
+                if isinstance(first_cmd, Assign) and isinstance(first_cmd.expr, Num):
+                    # só pular se for exatamente zero
+                    if getattr(first_cmd.expr, 'value', None) == 0:
+                        skip_inits.add(first_cmd.id)
+
+            for nm, lvl, off in locals_to_init:
+                if nm in skip_inits:
+                    continue
                 self.ldct(0)
                 self.stvl(lvl, off)
 
@@ -562,9 +581,25 @@ class MepaEmitter:
                     off = getattr(sym, 'offset', None)
                     lvl = getattr(sym, 'scope_level', level)
                     if off is not None and lvl is not None:
-                        locals_to_init.append((lvl, off))
-            locals_to_init.sort(key=lambda t: t[1])
-            for lvl, off in locals_to_init:
+                        locals_to_init.append((nm, lvl, off))
+            locals_to_init.sort(key=lambda t: t[2])
+
+            # Heurística simples (ver comentário em ProcDecl): pular
+            # inicialização automática se o corpo começa com `id := 0`.
+            skip_inits = set()
+            try:
+                first_cmd = node.block.compound.commands[0]
+            except Exception:
+                first_cmd = None
+            if first_cmd is not None:
+                from ast_nodes import Assign, Num
+                if isinstance(first_cmd, Assign) and isinstance(first_cmd.expr, Num):
+                    if getattr(first_cmd.expr, 'value', None) == 0:
+                        skip_inits.add(first_cmd.id)
+
+            for nm, lvl, off in locals_to_init:
+                if nm in skip_inits:
+                    continue
                 self.ldct(0)
                 self.stvl(lvl, off)
 
