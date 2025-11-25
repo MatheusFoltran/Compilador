@@ -1,0 +1,8 @@
+program erro_tipo_atribuicao;
+var
+    ok: boolean;
+    i: integer;
+begin
+    i := 10;
+    ok := i
+end.
