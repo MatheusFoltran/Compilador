@@ -1,6 +1,9 @@
 import ply.lex as lex
 import sys
 
+# Contador global de erros léxicos
+lex_error_count = 0
+
 # Palavras reservadas (case-sensitive - apenas minúsculas)
 reserved = {
     'program': 'PROGRAM',
@@ -116,6 +119,8 @@ t_ignore = ' \t\r'
 
 # Erro léxico padrão
 def t_error(t):
+    global lex_error_count
+    lex_error_count += 1
     print(f"Erro léxico (linha {t.lineno}): caractere inválido '{t.value[0]}'")
     t.lexer.skip(1)
 

@@ -22,19 +22,39 @@ def process_file(path: Path) -> bool:
         print(f"Erro: arquivo '{path}' nao encontrado")
         return False
 
-    # --- fase léxica: listar tokens (usar lexer rastreado para não perder o stream) ---
+    # --- fase léxica: listar tokens (tokenizar apenas UMA vez) ---
     print("\n--- Tokens ---")
     tk = TokenTracker(lexer)
     tk.input(text)
+    tokens = []
     while True:
         tok = tk.token()
         if not tok:
             break
+        tokens.append(tok)
         print(f"{tok.type:<12} {tok.value!r:<12} (linha {tok.lineno})")
 
     # --- fase sintática ---
     print("\n--- Parser ---")
-    tracked = TokenTracker(lexer)
+    # Usar os mesmos tokens para o parser sem reexecutar o lexer
+    # Evitar contagem de erros duplicada
+    # Abordagem desenvolvida apenas para a main. O parser por si só já chama o lexer.
+    class _ListLexer:
+        def __init__(self, tokens_list):
+            self._tokens = list(tokens_list)
+            self._i = 0
+        def token(self):
+            if self._i >= len(self._tokens):
+                return None
+            t = self._tokens[self._i]
+            self._i += 1
+            return t
+        def input(self, data):
+            # noop: tokens já estão preparados
+            self._i = 0
+
+    list_lex = _ListLexer(tokens)
+    tracked = TokenTracker(list_lex)
     tracked.input(text)
     parser = make_parser()
     try:
@@ -58,28 +78,29 @@ def process_file(path: Path) -> bool:
     print("\n--- Analise semantica ---")
     analyzer = SemanticAnalyzer()
     ok = analyzer.analyze(ast)
-    if not ok:
-        print(f"Analise semantica falhou para {path}")
-        return False
+    # imprimir tabela de símbolos independentemente do resultado
+    print("\n--- Tabela de Simbolos ---")
+    try:
+        analyzer.print_symbol_table()
+    except Exception as e:
+        print(f"Erro ao imprimir tabela de simbolos: {e}")
+
+    # Erro não é mais tratado aqui
+    # if not ok:
+    #     print(f"Analise semantica falhou para {path}")
+    #     return False
 
     # --- gerar pasta de saída e geracao MEPA ---
     out_dir = Path('output_main')
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / (path.stem + '.mepa')
     try:
-        mp = emit_mepa_file(ast, analyzer.symbol_table, str(out_path))
+        mp = emit_mepa_file(ast, analyzer.symbol_table, str(out_path), analyzer=analyzer)
     except Exception as e:
         print(f"Erro ao gerar MEPA: {e}")
         return False
 
     print(f"MEPA gerado: {out_path} ({len(mp)} linhas)")
-
-    # imprimir tabela de simbolos
-    print("\n--- Tabela de Simbolos ---")
-    try:
-        analyzer.print_symbol_table()
-    except Exception as e:
-        print(f"Erro ao imprimir tabela de simbolos: {e}")
     return True
 
 
