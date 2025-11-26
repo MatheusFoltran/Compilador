@@ -248,6 +248,12 @@ def p_func_decl_error_empty_params(p):
         recovering = True
         print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em function sem parâmetros. Linha {p.lineno(4)}")
     p[0] = FuncDecl(p[2], [], p[6], p[8])
+    
+def p_func_decl_error_missing_type(p):
+    '''func_decl : FUNCTION ID opt_params SEMI bloco_subrot'''
+    print(f"ERRO: Funções devem ter tipo de retorno (ex: : integer). Linha {p.lineno(1)}")
+    # Constrói um nó dummy ou assume integer
+    p[0] = FuncDecl(p[2], p[3], 'error', p[5])
 
 # Erro: () vazio em procedure (quando não há parâmetros, não deve ter parênteses)  
 def p_proc_decl_error_empty_params(p):
@@ -290,6 +296,12 @@ def p_bloco_subrot(p):
     global recovering
     recovering = False  # Resetar flag ao completar bloco de subrotina
     p[0] = Block(p[1], [], p[2])  # Sem subrotinas aninhadas!
+    
+def p_param_decl_error(p):
+    '''param_decl : lista_identificadores error tipo
+                  | lista_identificadores COLON error'''
+    print("ERRO: Declaração de parâmetros malformada.")
+    p[0] = ParamDecl(['error'], 'integer')
 
 # ERRO MELHORADO: Tentativa de aninhar subrotinas
 # Esta regra consome a subrotina inválida inteira e continua processando
@@ -362,6 +374,11 @@ def p_comando_composto_error_semi_before_end(p):
         p[0] = Compound([p[2]] + p[3])
     else:
         p[0] = Compound([p[2]])
+        
+def p_comando_composto_error_missing_comando(p):
+    '''comando_composto : BEGIN cmd_list_tail END'''
+    print(f"ERRO SINTÁTICO: comando esperado entre 'begin' e 'end'. Linha {p.lineno(1)}")
+    p[0] = Compound([])
 
 def p_cmd_list_tail(p):
     '''cmd_list_tail : SEMI comando cmd_list_tail
@@ -370,6 +387,13 @@ def p_cmd_list_tail(p):
         p[0] = []
     else:
         p[0] = [p[2]] + p[3]
+        
+        
+def p_cmd_list_tail_error_not_semi(p):
+    '''cmd_list_tail : comando cmd_list_tail'''
+    print("ERRO SINTÁTICO: token ';' esperado entre comandos.")
+    p[0] = [p[1]] + p[2]
+    
 
 # Erro em lista de comandos - captura erro e sincroniza
 def p_cmd_list_tail_error(p):
@@ -426,6 +450,19 @@ def p_chamada_procedimento(p):
         p[0] = ProcCall(p[1], p[3])
     else:
         p[0] = ProcCall(p[1], [])
+        
+def p_chamada_procedimento_error_missing_rparen(p):
+    '''chamada_procedimento : ID LPAREN lista_expressoes error
+                            | ID LPAREN error'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO SINTÁTICO na linha {p.lineno(len(p)-1)}: ')' esperado para finalizar chamada de procedimento")
+    if len(p) == 5:
+        p[0] = ProcCall(p[1], p[3])
+    else:
+        p[0] = ProcCall(p[1], [])
 
 # <condicional> ::= 'if' <expressão> 'then' <comando> [ 'else' <comando> ]
 def p_condicional(p):
@@ -476,6 +513,11 @@ def p_repeticao_error(p):
 def p_leitura(p):
     'leitura : READ LPAREN lista_identificadores RPAREN'
     p[0] = Read(p[3])
+    
+def p_leitura_error_expr(p):
+    'leitura : READ LPAREN lista_expressoes RPAREN'
+    print(f"ERRO: O comando 'read' aceita apenas variáveis, não expressões. Linha {p.lineno(1)}")
+    p[0] = Read([]) # Retorna comando vazio para continuar
 
 # <escrita> ::= 'write' '(' <lista_expressões> ')'
 def p_escrita(p):
