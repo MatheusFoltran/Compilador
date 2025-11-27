@@ -25,7 +25,7 @@ def process_file(path: Path) -> bool:
         print(f"Erro: arquivo '{path}' nao encontrado")
         return False
 
-    # --- fase léxica: listar tokens (usar lexer rastreado para não perder o stream) ---
+    # --- fase léxica: listar tokens (tokenizar apenas UMA vez) ---
     print("\n--- Tokens ---")
     # Usar um lexer independente apenas para listagem de tokens (sem afetar parser)
     list_lex = _plylex.lex(module=lexer_module)
@@ -35,6 +35,7 @@ def process_file(path: Path) -> bool:
         tok = tk_list.token()
         if not tok:
             break
+        tokens.append(tok)
         print(f"{tok.type:<12} {tok.value!r:<12} (linha {tok.lineno})")
 
     # --- fase sintática ---
@@ -71,28 +72,29 @@ def process_file(path: Path) -> bool:
     print("\n--- Analise semantica ---")
     analyzer = SemanticAnalyzer()
     ok = analyzer.analyze(ast)
-    if not ok:
-        print(f"Analise semantica falhou para {path}")
-        return False
+    # imprimir tabela de símbolos independentemente do resultado
+    print("\n--- Tabela de Simbolos ---")
+    try:
+        analyzer.print_symbol_table()
+    except Exception as e:
+        print(f"Erro ao imprimir tabela de simbolos: {e}")
+
+    # Erro não é mais tratado aqui
+    # if not ok:
+    #     print(f"Analise semantica falhou para {path}")
+    #     return False
 
     # --- gerar pasta de saída e geracao MEPA ---
     out_dir = Path('output_main')
     out_dir.mkdir(exist_ok=True)
     out_path = out_dir / (path.stem + '.mepa')
     try:
-        mp = emit_mepa_file(ast, analyzer.symbol_table, str(out_path))
+        mp = emit_mepa_file(ast, analyzer.symbol_table, str(out_path), analyzer=analyzer)
     except Exception as e:
         print(f"Erro ao gerar MEPA: {e}")
         return False
 
     print(f"MEPA gerado: {out_path} ({len(mp)} linhas)")
-
-    # imprimir tabela de simbolos
-    print("\n--- Tabela de Simbolos ---")
-    try:
-        analyzer.print_symbol_table()
-    except Exception as e:
-        print(f"Erro ao imprimir tabela de simbolos: {e}")
     return True
 
 

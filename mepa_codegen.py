@@ -701,11 +701,47 @@ class MepaEmitter:
         return None
 
 
-def emit_mepa_file(ast_root: Program, symbol_table, out_path: str):
-    """Convenience: calcula offsets, emite e escreve arquivo MEPA.
+def emit_mepa_file(ast_root: Program, symbol_table, out_path: str, *, analyzer=None, allow_on_errors: bool = False):
+    """Calcula offsets, emite e escreve arquivo MEPA com checagens defensivas.
 
-    O arquivo conterá uma instrução por linha (formato interno, minúsculo).
+    Parâmetros:
+    - `ast_root`: nó Program (AST raiz)
+    - `symbol_table`: tabela de símbolos (esperada após análise semântica)
+    - `out_path`: caminho do arquivo de saída
+    - `analyzer`: instância de `SemanticAnalyzer` para checar `has_errors`
+    - `allow_on_errors`: se True, ignora erros reportados e gera o arquivo de qualquer forma
+
+    A função abortará (lançando RuntimeError) quando detectar erros do parser
+    (se o módulo `parser` expuser `error_count`) ou quando `analyzer.has_errors`
+    for True, a não ser que `allow_on_errors` seja True.
     """
+
+    # Verificações defensivas: evitar gerar MEPA quando houver erros
+    if not allow_on_errors:
+        # 1) se um analisador semântico foi passado, priorizá-lo
+        if analyzer is not None:
+            if getattr(analyzer, 'has_errors', False):
+                raise RuntimeError("Analise semantica reportou erros; abortando geracao de MEPA.")
+
+        # 2) tentar inspecionar o parser global (se disponível) para erros sintáticos
+        # Checar erros sintáticos via módulo parser (se disponível)
+        try:
+            import parser as _parser
+            if getattr(_parser, 'error_count', 0) > 0:
+                raise RuntimeError(f"Parser reportou {_parser.error_count} erro(s); abortando geracao de MEPA.")
+        except ImportError:
+            # Se o módulo parser não estiver disponível, não podemos checar erros sintáticos aqui.
+            pass
+
+        # Checar erros léxicos via módulo lexer (se disponível)
+        try:
+            import lexer as _lexer
+            if getattr(_lexer, 'lex_error_count', 0) > 0:
+                raise RuntimeError(f"Lexer reportou {_lexer.lex_error_count} erro(s); abortando geracao de MEPA.")
+        except ImportError:
+            # Se o módulo lexer não estiver disponível, não podemos checar erros aqui.
+            pass
+
     # garantir offsets
     compute_offsets(ast_root, symbol_table)
 
