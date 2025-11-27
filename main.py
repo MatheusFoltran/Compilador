@@ -1,8 +1,11 @@
 import sys
 from pathlib import Path
 
-from lexer import lexer
+import parser
 from parser import make_parser, TokenTracker
+import importlib
+import ply.lex as _plylex
+import lexer as lexer_module
 from interpreter import SemanticAnalyzer
 from mepa_codegen import emit_mepa_file
 from ast_nodes import write_ast_verbose
@@ -24,11 +27,12 @@ def process_file(path: Path) -> bool:
 
     # --- fase léxica: listar tokens (tokenizar apenas UMA vez) ---
     print("\n--- Tokens ---")
-    tk = TokenTracker(lexer)
-    tk.input(text)
-    tokens = []
+    # Usar um lexer independente apenas para listagem de tokens (sem afetar parser)
+    list_lex = _plylex.lex(module=lexer_module)
+    tk_list = TokenTracker(list_lex)
+    tk_list.input(text)
     while True:
-        tok = tk.token()
+        tok = tk_list.token()
         if not tok:
             break
         tokens.append(tok)
@@ -36,35 +40,25 @@ def process_file(path: Path) -> bool:
 
     # --- fase sintática ---
     print("\n--- Parser ---")
-    # Usar os mesmos tokens para o parser sem reexecutar o lexer
-    # Evitar contagem de erros duplicada
-    # Abordagem desenvolvida apenas para a main. O parser por si só já chama o lexer.
-    class _ListLexer:
-        def __init__(self, tokens_list):
-            self._tokens = list(tokens_list)
-            self._i = 0
-        def token(self):
-            if self._i >= len(self._tokens):
-                return None
-            t = self._tokens[self._i]
-            self._i += 1
-            return t
-        def input(self, data):
-            # noop: tokens já estão preparados
-            self._i = 0
-
-    list_lex = _ListLexer(tokens)
-    tracked = TokenTracker(list_lex)
-    tracked.input(text)
-    parser = make_parser()
+    # Criar um lexer separado para o parser, garantindo estado limpo
+    parse_lex = _plylex.lex(module=lexer_module)
+    tk_parse = TokenTracker(parse_lex)
+    tk_parse.input(text)
+    parser_obj = make_parser()
     try:
-        ast = parser.parse(text, lexer=tracked)
+        ast = parser_obj.parse(text, lexer=tk_parse)
     except Exception as e:
         print(f"Erro de parsing: {e}")
         return False
 
     if not ast:
         print("Parsing nao produziu AST")
+        return False
+
+    # Se houve erro(s) sintáticos reportados pelo parser, não rodar
+    # a análise semântica para evitar mensagens em cascata.
+    if getattr(parser, 'error_count', 0) > 0:
+        print(f"ANÁLISE SINTÁTICA COMPLETADA COM {parser.error_count} ERRO(S). Pulando análise semântica.")
         return False
 
     print("\n--- AST (verbose) ---")

@@ -66,6 +66,14 @@ class TokenTracker:
         self.lexer.input(data)
         self.prev_token = None
         self.last_token = None
+        # Garantir que o contador de linhas do lexer seja reiniciado
+        # Ao reutilizar o mesmo objeto lexer entre duas varreduras (lista de tokens
+        # e parsing) o atributo `lineno` permanece no valor final da passada
+        # anterior, produzindo números de linha incorretos nas mensagens de erro.
+        try:
+            self.lexer.lineno = 1
+        except Exception:
+            pass
 
 # <programa> ::= 'program' <identificador> ';' <bloco> '.'
 def p_program(p):
@@ -77,7 +85,7 @@ def p_program_error(p):
     '''program : PROGRAM error SEMI bloco DOT
                | PROGRAM ID error bloco DOT
                | PROGRAM ID SEMI bloco error
-               | PROGRAM ID SEMI bloco'''
+               | PROGRAM ID VAR bloco DOT'''
     global error_count, recovering
     if not recovering:
         error_count += 1
@@ -93,6 +101,11 @@ def p_program_error(p):
         elif p[3] == 'error':
             print(f"ERRO SINTÁTICO na linha {p.lineno(3)}: ';' esperado após o identificador do programa")
             p[0] = Program(p[2], p[4])
+        elif len(p) > 3 and hasattr(p.slice[3], 'type') and p.slice[3].type == 'VAR':
+            # Caso comum: encontrou 'var' em vez de ';' após PROGRAM ID
+            # Mensagem formatada para bater com a planilha de testes
+            print(f"Palavra-chave 'var' inesperada. O parser esperava o token ';' para finalizar a declaração do programa. Linha {p.lineno(3)}")
+            p[0] = Program(p[2], p[4])
         elif p[5] == 'error':
             print(f"ERRO SINTÁTICO: fim de arquivo inesperado (EOF). O parser esperava o token '.' para finalizar o programa. Linha {p.lineno(4)}")
             p[0] = Program(p[2], p[4])
@@ -107,11 +120,54 @@ def p_program_error(p):
 def p_bloco(p):
     'bloco : opt_var_section opt_subr_section comando_composto'
     p[0] = Block(p[1], p[2], p[3])
+    
+#Erro: quando a seção de variáveis vem depois da seção de sub-rotinas
+def p_bloco_error(p):
+    '''bloco : opt_subr_section opt_var_section comando_composto
+            | opt_subr_section comando_composto opt_var_section'''
+            
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print("ERRO SINTÁTICO: seção de declaração de variáveis deve preceder seção de declaração de sub-rotinas.")
+        
+    if p[2] == 'opt_var_section':
+        p[0] = Block(p[2], p[1], p[3])
+    else:
+        p[0] = Block(p[3], p[1], p[2])
+   
+#Erro: quando a seção de comandos não é a última parte do bloco     
+def p_bloco_error_comando(p):
+    
+    '''bloco : opt_var_section comando_composto opt_subr_section
+            | comando_composto opt_var_section opt_subr_section
+            | comando_composto opt_subr_section opt_var_section
+            | comando_composto opt_var_section
+            | comando_composto opt_subr_section'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print("ERRO SINTÁTICO: seção de comandos deve ser a última parte do bloco.")
+        
+    if p[2] == 'opt_var_section':
+        p[0] = Block(p[2], p[3], p[1])
+    elif p[2] == 'comando_composto':
+        p[0] = Block(p[3], p[1], p[2])
+    elif p[2] == 'opt_subr_section' and len(p) == 4:
+        p[0] = Block(p[3], p[2], p[1])
+    elif p[2] == 'opt_var_section' and len(p) == 3:
+        p[0] = Block([2], [], p[1])
+    else:
+        p[0] = Block([], p[2], p[1])
 
 # [<seção_declaração_variáveis>]
 def p_opt_var_section(p):
     '''opt_var_section : var_section
                        | empty'''
+    # debug
+    p0 = None
     p[0] = p[1] if p[1] is not None else []
 
 # <seção_declaração_variáveis> ::= 'var' <declaração_variáveis> ';' { <declaração_variáveis> ';' }
@@ -233,6 +289,17 @@ def p_func_decl_error_empty_params(p):
         recovering = True
         print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em function sem parâmetros. Linha {p.lineno(4)}")
     p[0] = FuncDecl(p[2], [], p[6], p[8])
+    
+# Erro: tipo de retorno faltando em função
+def p_func_decl_error_missing_type(p):
+    '''func_decl : FUNCTION ID opt_params SEMI bloco_subrot'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO: Funções devem ter tipo de retorno (ex: : integer). Linha {p.lineno(1)}")
+    # Constrói um nó dummy ou assume integer
+    p[0] = FuncDecl(p[2], p[3], 'error', p[5])
 
 # Erro: () vazio em procedure (quando não há parâmetros, não deve ter parênteses)  
 def p_proc_decl_error_empty_params(p):
@@ -267,6 +334,13 @@ def p_param_decl_list(p):
 def p_param_decl(p):
     'param_decl : lista_identificadores COLON tipo'
     p[0] = ParamDecl(p[1], p[3])
+    
+# Erros em declaração de parâmetros
+def p_param_decl_error(p):
+    '''param_decl : lista_identificadores tipo
+                  | lista_identificadores COLON error'''
+    print("ERRO: Declaração de parâmetros malformada.")
+    p[0] = ParamDecl(['error'], 'integer')
 
 # <bloco_subrot> ::= [<seção_declaração_variáveis>] <comando_composto>
 # IMPORTANTE: NÃO permite <seção_declaração_subrotinas> (sem aninhamento!)
@@ -275,6 +349,8 @@ def p_bloco_subrot(p):
     global recovering
     recovering = False  # Resetar flag ao completar bloco de subrotina
     p[0] = Block(p[1], [], p[2])  # Sem subrotinas aninhadas!
+    
+
 
 # ERRO MELHORADO: Tentativa de aninhar subrotinas
 # Esta regra consome a subrotina inválida inteira e continua processando
@@ -347,6 +423,12 @@ def p_comando_composto_error_semi_before_end(p):
         p[0] = Compound([p[2]] + p[3])
     else:
         p[0] = Compound([p[2]])
+       
+# Erro: comando faltando entre 'begin' e 'end' 
+def p_comando_composto_error_missing_comando(p):
+    '''comando_composto : BEGIN cmd_list_tail END'''
+    print(f"ERRO SINTÁTICO: comando esperado entre 'begin' e 'end'. Linha {p.lineno(1)}")
+    p[0] = Compound([])
 
 def p_cmd_list_tail(p):
     '''cmd_list_tail : SEMI comando cmd_list_tail
@@ -355,6 +437,9 @@ def p_cmd_list_tail(p):
         p[0] = []
     else:
         p[0] = [p[2]] + p[3]
+        
+        
+
 
 # Erro em lista de comandos - captura erro e sincroniza
 def p_cmd_list_tail_error(p):
@@ -384,6 +469,7 @@ def p_atribuicao(p):
     # Anexar número da linha de origem para diagnósticos
     p[0] = Assign(p[1], p[3], lineno=p.lineno(1))
 
+
 # Erro: atribuição incompleta
 def p_atribuicao_error(p):
     '''atribuicao : ID ASSIGN error
@@ -411,6 +497,7 @@ def p_chamada_procedimento(p):
         p[0] = ProcCall(p[1], p[3])
     else:
         p[0] = ProcCall(p[1], [])
+        
 
 # <condicional> ::= 'if' <expressão> 'then' <comando> [ 'else' <comando> ]
 def p_condicional(p):
@@ -461,6 +548,7 @@ def p_repeticao_error(p):
 def p_leitura(p):
     'leitura : READ LPAREN lista_identificadores RPAREN'
     p[0] = Read(p[3])
+    
 
 # <escrita> ::= 'write' '(' <lista_expressões> ')'
 def p_escrita(p):

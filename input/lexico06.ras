@@ -1,0 +1,4 @@
+program string_proibida;
+begin
+    write("Ola Mundo")
+end.
