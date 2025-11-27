@@ -120,6 +120,22 @@ def p_program_error(p):
 def p_bloco(p):
     'bloco : opt_var_section opt_subr_section comando_composto'
     p[0] = Block(p[1], p[2], p[3])
+    
+def p_bloco_error(p):
+    '''bloco : opt_subr_section opt_var_section comando_composto
+            | opt_subr_section comando_composto opt_var_section'''
+            
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print("ERRO SINTÁTICO: seção de declaração de variáveis deve preceder seção de declaração de sub-rotinas.")
+        
+    if p[2] == 'opt_var_section':
+        p[0] = Block(p[2], p[1], p[3])
+    else:
+        p[0] = Block(p[3], p[1], p[2])
+        
 
 # [<seção_declaração_variáveis>]
 def p_opt_var_section(p):
@@ -251,7 +267,11 @@ def p_func_decl_error_empty_params(p):
     
 def p_func_decl_error_missing_type(p):
     '''func_decl : FUNCTION ID opt_params SEMI bloco_subrot'''
-    print(f"ERRO: Funções devem ter tipo de retorno (ex: : integer). Linha {p.lineno(1)}")
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print(f"ERRO: Funções devem ter tipo de retorno (ex: : integer). Linha {p.lineno(1)}")
     # Constrói um nó dummy ou assume integer
     p[0] = FuncDecl(p[2], p[3], 'error', p[5])
 
@@ -288,6 +308,12 @@ def p_param_decl_list(p):
 def p_param_decl(p):
     'param_decl : lista_identificadores COLON tipo'
     p[0] = ParamDecl(p[1], p[3])
+    
+def p_param_decl_error(p):
+    '''param_decl : lista_identificadores tipo
+                  | lista_identificadores COLON error'''
+    print("ERRO: Declaração de parâmetros malformada.")
+    p[0] = ParamDecl(['error'], 'integer')
 
 # <bloco_subrot> ::= [<seção_declaração_variáveis>] <comando_composto>
 # IMPORTANTE: NÃO permite <seção_declaração_subrotinas> (sem aninhamento!)
@@ -297,11 +323,7 @@ def p_bloco_subrot(p):
     recovering = False  # Resetar flag ao completar bloco de subrotina
     p[0] = Block(p[1], [], p[2])  # Sem subrotinas aninhadas!
     
-def p_param_decl_error(p):
-    '''param_decl : lista_identificadores error tipo
-                  | lista_identificadores COLON error'''
-    print("ERRO: Declaração de parâmetros malformada.")
-    p[0] = ParamDecl(['error'], 'integer')
+
 
 # ERRO MELHORADO: Tentativa de aninhar subrotinas
 # Esta regra consome a subrotina inválida inteira e continua processando
@@ -451,18 +473,6 @@ def p_chamada_procedimento(p):
     else:
         p[0] = ProcCall(p[1], [])
         
-def p_chamada_procedimento_error_missing_rparen(p):
-    '''chamada_procedimento : ID LPAREN lista_expressoes error
-                            | ID LPAREN error'''
-    global error_count, recovering
-    if not recovering:
-        error_count += 1
-        recovering = True
-        print(f"ERRO SINTÁTICO na linha {p.lineno(len(p)-1)}: ')' esperado para finalizar chamada de procedimento")
-    if len(p) == 5:
-        p[0] = ProcCall(p[1], p[3])
-    else:
-        p[0] = ProcCall(p[1], [])
 
 # <condicional> ::= 'if' <expressão> 'then' <comando> [ 'else' <comando> ]
 def p_condicional(p):
@@ -514,10 +524,6 @@ def p_leitura(p):
     'leitura : READ LPAREN lista_identificadores RPAREN'
     p[0] = Read(p[3])
     
-def p_leitura_error_expr(p):
-    'leitura : READ LPAREN lista_expressoes RPAREN'
-    print(f"ERRO: O comando 'read' aceita apenas variáveis, não expressões. Linha {p.lineno(1)}")
-    p[0] = Read([]) # Retorna comando vazio para continuar
 
 # <escrita> ::= 'write' '(' <lista_expressões> ')'
 def p_escrita(p):
