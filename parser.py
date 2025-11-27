@@ -136,6 +136,29 @@ def p_bloco_error(p):
     else:
         p[0] = Block(p[3], p[1], p[2])
         
+def p_bloco_error_comando(p):
+    
+    '''bloco : opt_var_section comando_composto opt_subr_section
+            | comando_composto opt_var_section opt_subr_section
+            | comando_composto opt_subr_section opt_var_section
+            | comando_composto opt_var_section
+            | comando_composto opt_subr_section'''
+    global error_count, recovering
+    if not recovering:
+        error_count += 1
+        recovering = True
+        print("ERRO SINTÁTICO: seção de comandos deve ser a última parte do bloco.")
+        
+    if p[2] == 'opt_var_section':
+        p[0] = Block(p[2], p[3], p[1])
+    elif p[2] == 'comando_composto':
+        p[0] = Block(p[3], p[1], p[2])
+    elif p[2] == 'opt_subr_section' and len(p) == 4:
+        p[0] = Block(p[3], p[2], p[1])
+    elif p[2] == 'opt_var_section' and len(p) == 3:
+        p[0] = Block([2], [], p[1])
+    else:
+        p[0] = Block([], p[2], p[1])
 
 # [<seção_declaração_variáveis>]
 def p_opt_var_section(p):
@@ -444,6 +467,7 @@ def p_atribuicao(p):
     'atribuicao : ID ASSIGN expressao'
     # Anexar número da linha de origem para diagnósticos
     p[0] = Assign(p[1], p[3], lineno=p.lineno(1))
+
 
 # Erro: atribuição incompleta
 def p_atribuicao_error(p):

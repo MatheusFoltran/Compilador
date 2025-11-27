@@ -1,16 +1,15 @@
 program erro_aninhada;
 
-
-function externa(n  : integer) : integer;
-var
-    b : integer;
-begin
-   
-    externa := b + 1
-end;
-
 begin
     read(a);
     a := externa(a )
     write(a)
 end.
+function externa(n  : integer) : integer;
+var
+    b : integer;
+begin
+   
+    externa := b + 1;
+end;
+
