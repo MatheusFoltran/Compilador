@@ -121,6 +121,7 @@ def p_bloco(p):
     'bloco : opt_var_section opt_subr_section comando_composto'
     p[0] = Block(p[1], p[2], p[3])
     
+#Erro: quando a seção de variáveis vem depois da seção de sub-rotinas
 def p_bloco_error(p):
     '''bloco : opt_subr_section opt_var_section comando_composto
             | opt_subr_section comando_composto opt_var_section'''
@@ -135,7 +136,8 @@ def p_bloco_error(p):
         p[0] = Block(p[2], p[1], p[3])
     else:
         p[0] = Block(p[3], p[1], p[2])
-        
+   
+#Erro: quando a seção de comandos não é a última parte do bloco     
 def p_bloco_error_comando(p):
     
     '''bloco : opt_var_section comando_composto opt_subr_section
@@ -288,6 +290,7 @@ def p_func_decl_error_empty_params(p):
         print(f"ERRO SINTÁTICO: token ')' inesperado. Não deveria ter () em function sem parâmetros. Linha {p.lineno(4)}")
     p[0] = FuncDecl(p[2], [], p[6], p[8])
     
+# Erro: tipo de retorno faltando em função
 def p_func_decl_error_missing_type(p):
     '''func_decl : FUNCTION ID opt_params SEMI bloco_subrot'''
     global error_count, recovering
@@ -332,6 +335,7 @@ def p_param_decl(p):
     'param_decl : lista_identificadores COLON tipo'
     p[0] = ParamDecl(p[1], p[3])
     
+# Erros em declaração de parâmetros
 def p_param_decl_error(p):
     '''param_decl : lista_identificadores tipo
                   | lista_identificadores COLON error'''
@@ -419,7 +423,8 @@ def p_comando_composto_error_semi_before_end(p):
         p[0] = Compound([p[2]] + p[3])
     else:
         p[0] = Compound([p[2]])
-        
+       
+# Erro: comando faltando entre 'begin' e 'end' 
 def p_comando_composto_error_missing_comando(p):
     '''comando_composto : BEGIN cmd_list_tail END'''
     print(f"ERRO SINTÁTICO: comando esperado entre 'begin' e 'end'. Linha {p.lineno(1)}")
@@ -434,11 +439,7 @@ def p_cmd_list_tail(p):
         p[0] = [p[2]] + p[3]
         
         
-def p_cmd_list_tail_error_not_semi(p):
-    '''cmd_list_tail : comando cmd_list_tail'''
-    print("ERRO SINTÁTICO: token ';' esperado entre comandos.")
-    p[0] = [p[1]] + p[2]
-    
+
 
 # Erro em lista de comandos - captura erro e sincroniza
 def p_cmd_list_tail_error(p):
