@@ -121,21 +121,44 @@ def p_bloco(p):
     'bloco : opt_var_section opt_subr_section comando_composto'
     p[0] = Block(p[1], p[2], p[3])
     
-#Erro: quando a seção de variáveis vem depois da seção de sub-rotinas
 def p_bloco_error(p):
     '''bloco : opt_subr_section opt_var_section comando_composto
             | opt_subr_section comando_composto opt_var_section'''
-            
+    
     global error_count, recovering
-    if not recovering:
+    
+    # Detectar seções
+    var_section = []
+    subr_section = []
+    compound = Compound([])
+    
+    def _looks_like_var_section(elem, sliceobj):
+        if isinstance(elem, list):
+            if len(elem) == 0:
+                return True
+            return isinstance(elem[0], VarDecl)
+        st = getattr(sliceobj, 'type', '')
+        return bool(st and 'var' in st.lower())
+    
+    subr_section = p[1] if p[1] is not None else []
+    
+    if _looks_like_var_section(p[2], p.slice[2]):
+        var_section = p[2] if p[2] is not None else []
+        compound = p[3]
+    else:
+        var_section = p[3] if len(p) > 3 and _looks_like_var_section(p[3], p.slice[3]) else []
+        compound = p[2]
+    
+    # MELHORIA: Só emitir erro se ambas as seções forem NÃO-VAZIAS
+    # (caso contrário, não há realmente uma inversão de ordem)
+    misordered = len(var_section) > 0 and len(subr_section) > 0
+    
+    if misordered and not recovering:
         error_count += 1
         recovering = True
         print("ERRO SINTÁTICO: seção de declaração de variáveis deve preceder seção de declaração de sub-rotinas.")
-        
-    if p[2] == 'opt_var_section':
-        p[0] = Block(p[2], p[1], p[3])
-    else:
-        p[0] = Block(p[3], p[1], p[2])
+    
+    p[0] = Block(var_section, subr_section, compound)
    
 #Erro: quando a seção de comandos não é a última parte do bloco     
 def p_bloco_error_comando(p):
