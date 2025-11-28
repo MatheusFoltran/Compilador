@@ -121,46 +121,6 @@ def p_bloco(p):
     'bloco : opt_var_section opt_subr_section comando_composto'
     p[0] = Block(p[1], p[2], p[3])
     
-#Erro: quando a seção de variáveis vem depois da seção de sub-rotinas
-def p_bloco_error(p):
-    '''bloco : opt_subr_section opt_var_section comando_composto
-            | opt_subr_section comando_composto opt_var_section'''
-            
-    global error_count, recovering
-    if not recovering:
-        error_count += 1
-        recovering = True
-        print("ERRO SINTÁTICO: seção de declaração de variáveis deve preceder seção de declaração de sub-rotinas.")
-        
-    if p[2] == 'opt_var_section':
-        p[0] = Block(p[2], p[1], p[3])
-    else:
-        p[0] = Block(p[3], p[1], p[2])
-   
-#Erro: quando a seção de comandos não é a última parte do bloco     
-def p_bloco_error_comando(p):
-    
-    '''bloco : opt_var_section comando_composto opt_subr_section
-            | comando_composto opt_var_section opt_subr_section
-            | comando_composto opt_subr_section opt_var_section
-            | comando_composto opt_var_section
-            | comando_composto opt_subr_section'''
-    global error_count, recovering
-    if not recovering:
-        error_count += 1
-        recovering = True
-        print("ERRO SINTÁTICO: seção de comandos deve ser a última parte do bloco.")
-        
-    if p[2] == 'opt_var_section':
-        p[0] = Block(p[2], p[3], p[1])
-    elif p[2] == 'comando_composto':
-        p[0] = Block(p[3], p[1], p[2])
-    elif p[2] == 'opt_subr_section' and len(p) == 4:
-        p[0] = Block(p[3], p[2], p[1])
-    elif p[2] == 'opt_var_section' and len(p) == 3:
-        p[0] = Block([2], [], p[1])
-    else:
-        p[0] = Block([], p[2], p[1])
 
 # [<seção_declaração_variáveis>]
 def p_opt_var_section(p):
@@ -438,7 +398,7 @@ def p_cmd_list_tail(p):
     else:
         p[0] = [p[2]] + p[3]
         
-        
+
 
 
 # Erro em lista de comandos - captura erro e sincroniza
