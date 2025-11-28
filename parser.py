@@ -139,28 +139,74 @@ def p_bloco_error(p):
    
 #Erro: quando a seção de comandos não é a última parte do bloco     
 def p_bloco_error_comando(p):
-    
-    '''bloco : opt_var_section comando_composto opt_subr_section
-            | comando_composto opt_var_section opt_subr_section
+    '''bloco : comando_composto opt_var_section opt_subr_section
             | comando_composto opt_subr_section opt_var_section
             | comando_composto opt_var_section
             | comando_composto opt_subr_section'''
     global error_count, recovering
-    if not recovering:
+    
+    # Implementação defensiva:
+    # - identifica `comando_composto` (Compound), `var_section` (lista de VarDecl)
+    #   e `subr_section` (lista de ProcDecl/FuncDecl) por inspeção de tipos;
+    # - usa `p.slice` como fallback quando necessário;
+    # - só emite a mensagem de ordem incorreta se de fato houver uma seção
+    #   NÃO-VAZIA (var ou subr) localizada APÓS o comando composto.
+    
+    var_section = []
+    subr_section = []
+    compound = Compound([])
+    comp_idx = None
+    var_idxs = []
+    subr_idxs = []
+    
+    for i in range(1, len(p)):
+        elem = p[i]
+        slice_type = getattr(p.slice[i], 'type', None)
+        
+        # Detectar o composto diretamente
+        if isinstance(elem, Compound):
+            compound = elem
+            comp_idx = i
+            continue
+        
+        # Detectar seção de variáveis por forma (lista NÃO-VAZIA cujo primeiro é VarDecl)
+        if isinstance(elem, list) and len(elem) > 0 and isinstance(elem[0], VarDecl):
+            var_section = elem
+            var_idxs.append(i)
+            continue
+        
+        # Detectar seção de sub-rotinas por forma (lista NÃO-VAZIA cujo primeiro é ProcDecl/FuncDecl)
+        if isinstance(elem, list) and len(elem) > 0 and isinstance(elem[0], (ProcDecl, FuncDecl)):
+            subr_section = elem
+            subr_idxs.append(i)
+            continue
+        
+        # Fallback: inferir a partir do nome do slice quando a estrutura acima não se aplica
+        # MAS apenas se a lista for NÃO-VAZIA (evita falsos positivos com seções vazias)
+        if slice_type and isinstance(elem, list) and len(elem) > 0:
+            st = slice_type.lower()
+            if 'var' in st:
+                var_section = elem
+                var_idxs.append(i)
+            elif ('subr' in st or 'proc' in st or 'func' in st):
+                subr_section = elem
+                subr_idxs.append(i)
+    
+    # Determinar se há seção NÃO-VAZIA (var/subr) após o composto
+    misordered = False
+    if comp_idx is not None:
+        for idx in var_idxs + subr_idxs:
+            if idx > comp_idx:
+                misordered = True
+                break
+    
+    # Emitir erro apenas se realmente detectado
+    if misordered and not recovering:
         error_count += 1
         recovering = True
         print("ERRO SINTÁTICO: seção de comandos deve ser a última parte do bloco.")
-        
-    if p[2] == 'opt_var_section':
-        p[0] = Block(p[2], p[3], p[1])
-    elif p[2] == 'comando_composto':
-        p[0] = Block(p[3], p[1], p[2])
-    elif p[2] == 'opt_subr_section' and len(p) == 4:
-        p[0] = Block(p[3], p[2], p[1])
-    elif p[2] == 'opt_var_section' and len(p) == 3:
-        p[0] = Block([2], [], p[1])
-    else:
-        p[0] = Block([], p[2], p[1])
+    
+    p[0] = Block(var_section, subr_section, compound)
 
 # [<seção_declaração_variáveis>]
 def p_opt_var_section(p):
