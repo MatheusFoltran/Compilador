@@ -436,10 +436,7 @@ def p_cmd_list_tail(p):
     if len(p) == 2:
         p[0] = []
     else:
-        p[0] = [p[2]] + p[3]
-        
-        
-
+        p[0] = [p[2]] + p[3]   
 
 # Erro em lista de comandos - captura erro e sincroniza
 def p_cmd_list_tail_error(p):
