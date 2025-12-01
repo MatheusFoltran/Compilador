@@ -4,6 +4,21 @@ import sys
 # Contador global de erros léxicos
 lex_error_count = 0
 
+
+def _report_lex_error(t, message: str):
+    """Relata um erro léxico e incrementa o contador global.
+
+    Use este helper dentro dos handlers de comentário/erro para centralizar
+    a lógica de contagem e impressão de mensagens.
+    """
+    global lex_error_count
+    lex_error_count += 1
+    lineno = getattr(t, 'lineno', None)
+    if lineno is not None:
+        print(f"Erro léxico (linha {lineno}): {message}")
+    else:
+        print(f"Erro léxico: {message}")
+
 # Palavras reservadas (case-sensitive - apenas minúsculas)
 reserved = {
     'program': 'PROGRAM',
@@ -70,29 +85,29 @@ def t_GE(t):
 # Detectar tentativas de comentário (SEM { e ()
 def t_COMMENT_SLASHSLASH(t):
     r'//.*'
-    print(f"Erro léxico (linha {t.lineno}): comentários '//' não são permitidos em Rascal.")
+    _report_lex_error(t, "comentários '//' não são permitidos em Rascal.")
     # Não retorna nada, token é descartado
 
 def t_COMMENT_HASH(t):
     r'\#.*'
-    print(f"Erro léxico (linha {t.lineno}): comentários '#' não são permitidos em Rascal.")
+    _report_lex_error(t, "comentários '#' não são permitidos em Rascal.")
     # Não retorna nada, token é descartado
 
 def t_COMMENT_CBLOCK(t):
     r'/\*(.|\n)*?\*/'
-    print(f"Erro léxico (linha {t.lineno}): comentários '/* */' não são permitidos em Rascal.")
+    _report_lex_error(t, "comentários '/* */' não são permitidos em Rascal.")
     t.lexer.lineno += t.value.count('\n')
     # Não retorna nada, token é descartado
 
 # ADICIONAR ANTES de t_LPAREN
 def t_COMMENT_BRACE(t):
     r'\{[^}]*\}'
-    print(f"Erro léxico (linha {t.lineno}): comentários '{{}}' não são permitidos em Rascal.")
+    _report_lex_error(t, "comentários '{ }' não são permitidos em Rascal.")
     t.lexer.lineno += t.value.count('\n')
 
 def t_COMMENT_PAREN(t):
     r'\(\*(.|\n)*?\*\)'
-    print(f"Erro léxico (linha {t.lineno}): comentários '(* *)' não são permitidos em Rascal.")
+    _report_lex_error(t, "comentários '(* *)' não são permitidos em Rascal.")
     t.lexer.lineno += t.value.count('\n')
 
 # Contar linhas
@@ -119,9 +134,14 @@ t_ignore = ' \t\r'
 
 # Erro léxico padrão
 def t_error(t):
-    global lex_error_count
-    lex_error_count += 1
-    print(f"Erro léxico (linha {t.lineno}): caractere inválido '{t.value[0]}'")
+    # Usar helper centralizado para relatório de erros léxicos
+    # O helper incrementa `lex_error_count` e imprime a mensagem com linha quando possível
+    # Protegemos o acesso a t.value[0] caso t.value seja vazio
+    try:
+        char = t.value[0]
+    except Exception:
+        char = '<desconhecido>'
+    _report_lex_error(t, f"caractere inválido '{char}'")
     t.lexer.skip(1)
 
 # Construir lexer

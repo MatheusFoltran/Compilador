@@ -491,7 +491,7 @@ class MepaEmitter:
         if local_count:
             self.alloc(local_count)
 
-        # Inicializar variáveis locais (zerar). Muitos exercícios esperam
+        # Inicializar variáveis locais (zerar). Muitos testes esperam
         # que tipos escalares comecem com 0/false. Aqui buscamos o
         # snapshot arquivado que contém os símbolos do escopo e, para
         # cada variável local (não parâmetro), emitimos "ldct 0; stvl",

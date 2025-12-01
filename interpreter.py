@@ -551,26 +551,31 @@ class SemanticAnalyzer:
     
     def visit_Assign(self, node):
         """Visita o nó Assign - verifica atribuição e anota AST"""
+        
+        # Verifica se o identificador existe
         if not self.symbol_table.exists(node.id):
             self.error(f"Variável '{node.id}' não foi declarada")
             return
         
         symbol = self.symbol_table.lookup(node.id)
         
+        # Verifica se o identificador pode receber valor (apenas Var e Func)
+        # Isso protege contra atribuição ao identificador do 'program' ou 'proc'
         if symbol.category not in ['var', 'func']:
-            self.error(f"'{node.id}' não pode receber atribuição (é {symbol.category})")
+            self.error(f"Identificador '{node.id}' não pode receber atribuição (é {symbol.category})")
             return
         
-        # ANOTAR AST
+        # ANOTAR AST (Metadados para geração de código)
         node.var_type = symbol.tipo
         node.var_scope_level = symbol.scope_level
         
-        # Verificar tipo da expressão
+        # Visita a expressão para determinar seu tipo
         expr_type = self.visit(node.expr)
         
+        # Garante que tipos diferentes (ex: integer e boolean) gerem erro
         if expr_type != symbol.tipo and expr_type != 'unknown':
-            self.error(f"Atribuição incompatível: '{node.id}' é {symbol.tipo}, "
-                      f"mas expressão é {expr_type}")
+            self.error(f"Atribuição inválida: variável '{node.id}' é '{symbol.tipo}', "
+                       f"mas a expressão é '{expr_type}'.")
         # Observação: a contagem das atribuições de retorno de função agora é feita por meio
         # da função auxiliar sensível ao fluxo (compute_return_range) em visit_FuncDecl.
         # Mantemos este método focado apenas na verificação de tipos.
