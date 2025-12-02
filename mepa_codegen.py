@@ -98,39 +98,43 @@ def compute_offsets(ast_root: Program, symbol_table) -> None:
         if snap:
             symbols = snap.get('symbols', {})
 
-        # contar parâmetros e atribuir offsets na ordem de declaração
-        param_count = 0
-        offset = 0
-        # parâmetros: node.params é uma lista de ParamDecl
+        # Contar parâmetros primeiro para calcular os offsets corretos
+        param_count = len([pid for pd in node.params for pid in pd.ids])
+        
+        # CONVENÇÃO MEPA para offsets relativos a D[k]:
+        # - Parâmetros: offsets negativos -(4 + param_count) até -5
+        #   Layout: [retorno?][arg1]...[argN][ret_addr][D[k]][k][D[k-1]] -> D[k]
+        #   O primeiro parâmetro (arg1) está em D[k] - (4 + param_count)
+        # - Locais: offsets positivos 0, 1, 2, ...
+        
+        # Atribuir offsets para parâmetros (ordem de declaração)
+        param_offset = -(4 + param_count)  # primeiro parâmetro
         for param_decl in node.params:
             for pid in param_decl.ids:
-                # atualizar símbolo arquivado, se presente
                 if symbols and pid in symbols:
                     sym = symbols[pid]
-                    setattr(sym, 'offset', offset)
+                    setattr(sym, 'offset', param_offset)
                 else:
-                    # como fallback, tentar localizar o símbolo nas
-                    # tabelas de escopo ativas e atualizar o objeto
                     for sc in symbol_table.scope_stack:
                         if pid in sc:
-                            setattr(sc[pid], 'offset', offset)
+                            setattr(sc[pid], 'offset', param_offset)
                             break
-                offset += 1
-                param_count += 1
+                param_offset += 1
 
-        # Locais: percorrer `node.block.var_decls` na ordem de declaração
+        # Locais: offsets começando de 0
+        local_offset = 0
         local_count = 0
         for var_decl in node.block.var_decls:
             for vid in var_decl.ids:
                 if symbols and vid in symbols:
                     sym = symbols[vid]
-                    setattr(sym, 'offset', offset)
+                    setattr(sym, 'offset', local_offset)
                 else:
                     for sc in symbol_table.scope_stack:
                         if vid in sc:
-                            setattr(sc[vid], 'offset', offset)
+                            setattr(sc[vid], 'offset', local_offset)
                             break
-                offset += 1
+                local_offset += 1
                 local_count += 1
 
         # Armazenar contagens no objeto símbolo, se o símbolo declarador
@@ -231,6 +235,7 @@ class MepaEmitter:
         self.proc_labels: Dict[str, str] = {}
         self.proc_levels: Dict[str, int] = {}
         self.global_var_count = 0
+        self.current_function = None  # rastrear função atual para detectar retorno
         self._collect_proc_metadata()
 
     def new_label(self, prefix='L') -> str:
@@ -401,7 +406,20 @@ class MepaEmitter:
     def gen_Assign(self, node):
         # gerar expressão e depois armazenar no identificador
         self.gen_Node(node.expr)
-        # buscar símbolo para id
+
+        # CORREÇÃO: Se estamos atribuindo ao nome da função atual (retorno)
+        if self.current_function and node.id == self.current_function:
+            func_sym = self._find_symbol(node.id, None)
+            if func_sym:
+                level = getattr(func_sym, 'scope_level', 0) + 1
+                param_count = getattr(func_sym, 'param_count', 0)
+                # O valor de retorno está ANTES dos parâmetros e do registro de ativação
+                # Layout: [retorno][args...][ret_addr][D[k]][k][D[k-1]] → D[level]
+                # Offset = -(param_count + 5): parâmetros em -5..-5-N+1, retorno antes deles
+                self.stvl(level, -(param_count + 5))
+            return
+
+        # Caso normal: variável comum
         sym = self._find_symbol(node.id, getattr(node, 'scope_level', None))
         if sym is None:
             # fallback: armazenar em global
@@ -462,13 +480,20 @@ class MepaEmitter:
         self.call(label, level)
 
     def gen_FuncCall(self, node):
-        # empilha argumentos e chama, o valor retornado ficará no topo
+        # CORREÇÃO: Alocar espaço para valor de retorno ANTES dos argumentos
+        self.alloc(1)  # espaço para o retorno
+        
+        # empilha argumentos left-to-right
         for arg in node.args:
             self.gen_Node(arg)
+        
         sym = self._find_symbol(node.name, None)
         level = self.proc_levels.get(node.name, 1)
         label = self.proc_labels.get(node.name, node.name.upper())
         self.call(label, level)
+        
+        # Após o retorno, o valor estará no topo (onde estava o espaço alocado)
+        # Não precisa desalocar, pois o valor de retorno fica no topo para uso
 
     def gen_ProcDecl(self, node: ProcDecl):
         # Emitir rótulo da procedure e prologue/epilogue simples
@@ -561,6 +586,8 @@ class MepaEmitter:
 
         # prologue
         self.entproc(level)
+        # CORREÇÃO: Alocar APENAS as variáveis locais (sem +1)
+        # O espaço para retorno já foi alocado pelo chamador
         if local_count:
             self.alloc(local_count)
 
@@ -600,12 +627,23 @@ class MepaEmitter:
                 self.ldct(0)
                 self.stvl(lvl, off)
 
+        # Guardar contexto da função atual para detectar atribuição de retorno
+        old_function = self.current_function
+        self.current_function = node.name
+
         # corpo
         self.gen_Block(node.block)
 
-        # epílogo
+        # Restaurar contexto
+        self.current_function = old_function
+
+        # Desalocar locais primeiro
         if local_count:
             self.dealloc(local_count)
+
+        # O valor de retorno já está no espaço alocado pelo chamador
+        # Após retproc(n), s -= n+4, deixando apenas [retorno] no topo
+        # Não precisamos carregar explicitamente; retproc deixa o retorno no lugar certo
         self.retproc(param_count)
 
     def gen_BinOp(self, node):
