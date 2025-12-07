@@ -1,4 +1,4 @@
-# Compilador (Rascal subset)
+# Compilador (Rascal)
 Este repositório contém um compilador educacional para a linguagem rascal.
 Ele implementa as fases clássicas: lexer, parser (PLY), análise semântica e geração de código para uma máquina virtual MEPA.
 
