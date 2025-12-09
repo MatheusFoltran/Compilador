@@ -1,0 +1,7 @@
+venv/
+__pycache__/
+parser.out
+parsetab.py
+output_mepa/
+output_main/
+.vscode/

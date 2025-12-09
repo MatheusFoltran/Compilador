@@ -1,0 +1,12 @@
+program erro_multi_var;
+var
+    x, y : integer;
+var
+    z : boolean;
+
+begin
+    x := 10;
+    y := 20;
+    z := x > y;
+    write(x, y)
+end.

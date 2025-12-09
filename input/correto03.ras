@@ -1,0 +1,14 @@
+program potencia;
+var
+    base, expoente, i, resultado : integer;
+begin
+    read(base, expoente);
+    resultado := 1;
+    i := 0;
+    while i < expoente do
+    begin
+        resultado := resultado * base;
+        i := i + 1
+    end;
+    write(resultado)
+end.

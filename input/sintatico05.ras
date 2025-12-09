@@ -1,0 +1,10 @@
+program erro_ponto_virgula_final;
+var
+    val : integer;
+begin
+    read(val);
+    if val > 10 then
+    begin
+        write(val);
+    end
+end.

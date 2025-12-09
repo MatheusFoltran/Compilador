@@ -1,0 +1,23 @@
+program erro_aninhada;
+var
+    a : integer;
+
+function externa(n : integer) : integer;
+var
+    b : integer;
+
+    function interna(m : integer) : integer;
+    begin
+        interna := m * 2
+    end;
+
+begin
+    b := interna(n);
+    externa := b + 1
+end;
+
+begin
+    read(a);
+    a := externa(a);
+    write(a)
+end.

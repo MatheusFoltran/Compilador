@@ -1,0 +1,13 @@
+program erro_underline;
+var
+    x : integer;
+
+procedure _minha_rotina(val : integer);
+begin
+    write(val)
+end;
+
+begin
+    read(x);
+    _minha_rotina(x)
+end.

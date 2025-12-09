@@ -1,0 +1,5 @@
+program Err2;
+var b: boolean;
+begin
+	b := 1 < 2 + true
+end.
